@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon
-from database.connection import get_connection
+from database.connection import get_connection, catat_log
+from models.pendukung_model import PendukungModel
 
 class MasterPendukungPage(QWidget):
     """
@@ -159,13 +160,12 @@ class MasterPendukungPage(QWidget):
         if dialog.exec() == QInputDialog.Accepted:
             nama = dialog.textValue().strip().title()
             if nama:
-                try:
-                    conn = get_connection(); cursor = conn.cursor()
-                    cursor.execute("INSERT INTO kategori (nama_kategori) VALUES (?)", (nama,))
-                    conn.commit(); conn.close()
-                    self.load_data_kategori()
+                if PendukungModel.add_kategori(nama):
+                    catat_log(f"Menambah Kategori: {nama}")
+                    self.load_kategori()
                     self.show_notif("Berhasil", f"Kategori '{nama}' berhasil ditambahkan.")
-                except Exception as e: self.show_notif("Gagal", f"Error: {e}", is_error=True)
+                else:
+                    self.show_notif("Gagal", f"Error: Gagal menambahkan kategori '{nama}'.", is_error=True)
 
     def edit_kategori(self, id_k, nama_lama):
         dialog = QInputDialog(self)
@@ -178,10 +178,12 @@ class MasterPendukungPage(QWidget):
         if dialog.exec() == QInputDialog.Accepted:
             baru = dialog.textValue().strip().title()
             if baru and baru != nama_lama:
-                conn = get_connection(); cursor = conn.cursor()
-                cursor.execute("UPDATE kategori SET nama_kategori = ? WHERE id_kategori = ?", (baru, id_k))
-                conn.commit(); conn.close(); self.load_data_kategori()
-                self.show_notif("Berhasil", f"Kategori diperbarui menjadi '{baru}'.")
+                if PendukungModel.update_kategori(id_k, baru):
+                    catat_log(f"Mengubah Kategori: {nama_lama} -> {baru}")
+                    self.load_kategori()
+                    self.show_notif("Berhasil", f"Kategori diperbarui menjadi '{baru}'.")
+                else:
+                    self.show_notif("Gagal", f"Error: Gagal memperbarui kategori '{nama_lama}'.", is_error=True)
 
     def hapus_kategori(self, id_k, nama):
         msg = QMessageBox(self)
@@ -193,23 +195,24 @@ class MasterPendukungPage(QWidget):
         msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; } QPushButton { color: black; font-weight: bold; background-color: #f1f5f9; border: 1px solid #cbd5e1; min-width: 80px; padding: 5px; }")
         
         if msg.exec() == QMessageBox.Yes:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("DELETE FROM kategori WHERE id_kategori = ?", (id_k,))
-            conn.commit(); conn.close(); self.load_data_kategori()
+            if PendukungModel.delete_kategori(id_k):
+                catat_log(f"Menghapus Kategori: {nama}")
+                self.load_kategori()
+                self.show_notif("Berhasil", f"Kategori '{nama}' berhasil dihapus.")
+            else:
+                self.show_notif("Gagal", f"Error: Gagal menghapus kategori '{nama}'.", is_error=True)
 
-    def load_data_kategori(self):
+    def load_kategori(self):
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT id_kategori, nama_kategori FROM kategori ORDER BY id_kategori DESC")
-            rows = cursor.fetchall(); self.table_kat.setRowCount(0)
+            rows = PendukungModel.get_all_kategori()
+            self.table_kat.setRowCount(0)
             for i, row in enumerate(rows):
                 self.table_kat.insertRow(i)
                 no = QTableWidgetItem(str(i + 1)); no.setTextAlignment(Qt.AlignCenter)
                 self.table_kat.setItem(i, 0, no)
-                self.table_kat.setItem(i, 1, QTableWidgetItem(str(row[1])))
-                self.create_action_buttons(self.table_kat, i, row[0], row[1], "kat")
-            conn.close()
-        except Exception as e: print(f"DB Operation Error: {e}")
+                self.table_kat.setItem(i, 1, QTableWidgetItem(str(row[1]))) # row[1] is nama_kategori
+                self.create_action_buttons(self.table_kat, i, row[0], row[1], "kat") # row[0] is id_kategori
+        except Exception as e: print(f"Load Kategori Error: {e}")
 
     def tambah_lokasi_dialog(self):
         dialog = QInputDialog(self)
@@ -221,13 +224,12 @@ class MasterPendukungPage(QWidget):
         if dialog.exec() == QInputDialog.Accepted:
             nama = dialog.textValue().strip().title()
             if nama:
-                try:
-                    conn = get_connection(); cursor = conn.cursor()
-                    cursor.execute("INSERT INTO lokasi (nama_lokasi) VALUES (?)", (nama,))
-                    conn.commit(); conn.close()
-                    self.load_data_lokasi()
+                if PendukungModel.add_lokasi(nama):
+                    catat_log(f"Menambah Lokasi: {nama}")
+                    self.load_lokasi()
                     self.show_notif("Berhasil", f"Lokasi '{nama}' berhasil didaftarkan.")
-                except Exception as e: self.show_notif("Gagal", f"Error: {e}", is_error=True)
+                else:
+                    self.show_notif("Gagal", f"Error: Gagal menambahkan lokasi '{nama}'.", is_error=True)
 
     def edit_lokasi(self, id_l, nama_lama):
         dialog = QInputDialog(self)
@@ -239,11 +241,13 @@ class MasterPendukungPage(QWidget):
         
         if dialog.exec() == QInputDialog.Accepted:
             baru = dialog.textValue().strip().title()
-            if baru:
-                conn = get_connection(); cursor = conn.cursor()
-                cursor.execute("UPDATE lokasi SET nama_lokasi = ? WHERE id_lokasi = ?", (baru, id_l))
-                conn.commit(); conn.close(); self.load_data_lokasi()
-                self.show_notif("Berhasil", f"Lokasi diubah menjadi '{baru}'.")
+            if baru and baru != nama_lama:
+                if PendukungModel.update_lokasi(id_l, baru):
+                    catat_log(f"Mengubah Lokasi: {nama_lama} -> {baru}")
+                    self.load_lokasi()
+                    self.show_notif("Berhasil", f"Lokasi diubah menjadi '{baru}'.")
+                else:
+                    self.show_notif("Gagal", f"Error: Gagal memperbarui lokasi '{nama_lama}'.", is_error=True)
 
     def hapus_lokasi(self, id_l, nama):
         msg = QMessageBox(self)
@@ -253,23 +257,24 @@ class MasterPendukungPage(QWidget):
         msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; } QPushButton { color: black; font-weight: bold; background-color: #f1f5f9; border: 1px solid #cbd5e1; min-width: 80px; padding: 5px; }")
         
         if msg.exec() == QMessageBox.Yes:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("DELETE FROM lokasi WHERE id_lokasi = ?", (id_l,))
-            conn.commit(); conn.close(); self.load_data_lokasi()
+            if PendukungModel.delete_lokasi(id_l):
+                catat_log(f"Menghapus Lokasi: {nama}")
+                self.load_lokasi()
+                self.show_notif("Berhasil", f"Lokasi '{nama}' berhasil dihapus.")
+            else:
+                self.show_notif("Gagal", f"Error: Gagal menghapus lokasi '{nama}'.", is_error=True)
 
-    def load_data_lokasi(self):
+    def load_lokasi(self):
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT id_lokasi, nama_lokasi FROM lokasi ORDER BY id_lokasi DESC")
-            rows = cursor.fetchall(); self.table_lok.setRowCount(0)
+            rows = PendukungModel.get_all_lokasi()
+            self.table_lok.setRowCount(0)
             for i, row in enumerate(rows):
                 self.table_lok.insertRow(i)
                 no = QTableWidgetItem(str(i + 1)); no.setTextAlignment(Qt.AlignCenter)
                 self.table_lok.setItem(i, 0, no)
                 self.table_lok.setItem(i, 1, QTableWidgetItem(str(row[1])))
                 self.create_action_buttons(self.table_lok, i, row[0], row[1], "lok")
-            conn.close()
-        except Exception as e: print(f"DB Operation Error: {e}")
+        except Exception as e: print(f"Load Lokasi Error: {e}")
 
     def show_notif(self, title, text, is_error=False):
         msg = QMessageBox(self)
@@ -284,5 +289,5 @@ class MasterPendukungPage(QWidget):
         msg.exec()
 
     def refresh_all_data(self):
-        self.load_data_kategori()
-        self.load_data_lokasi()
+        self.load_kategori()
+        self.load_lokasi()

@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QScrollArea, QGridLayout, QSizePolicy, QCompleter
 )
 from PySide6.QtCore import Qt, QSettings, QStringListModel
-from database.connection import get_connection, catat_log
+from database.connection import catat_log
+from models.barang_model import BarangModel
+from models.transaksi_model import TransaksiModel
 from datetime import datetime
 from utils.config_manager import get_ip_camera_url
 
@@ -37,11 +39,8 @@ class BarangKeluarPage(QWidget):
 
     def update_penerima_autocomplete(self):
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT keterangan FROM transaksi WHERE jenis='KELUAR' AND keterangan != '-' AND keterangan IS NOT NULL")
-            penerimas = [r[0] for r in cursor.fetchall() if r[0].strip()]
+            penerimas = TransaksiModel.get_penerima_list()
             self.penerima_model.setStringList(penerimas)
-            conn.close()
         except Exception as e: print(f"Load Barang Error: {e}")
 
     def init_ui(self):
@@ -93,7 +92,7 @@ class BarangKeluarPage(QWidget):
         btn_scan_kamera.setFixedSize(120, 40)
         btn_scan_kamera.setCursor(Qt.PointingHandCursor)
         btn_scan_kamera.setStyleSheet("background-color: #ef4444; color: white;")
-        btn_scan_kamera.clicked.connect(self.scan_via_kamera)
+        btn_scan_kamera.clicked.connect(self.scan_kamera)
 
         top_bar_layout.addWidget(self.input_barcode, 1)
         top_bar_layout.addWidget(btn_cari)
@@ -255,38 +254,23 @@ class BarangKeluarPage(QWidget):
     def cari_fifo_logic(self, barcode_val):
         if not barcode_val: return False
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT SUM(t.sisa_qty) as total 
-                FROM transaksi t JOIN barang_baru b ON t.id_barang = b.id_barang
-                WHERE b.barcode = ? AND t.jenis = 'MASUK' AND t.sisa_qty > 0
-            """, (barcode_val,))
-            res = cursor.fetchone()
-            self.total_stok_tersedia = res["total"] if res["total"] is not None else 0
+            self.total_stok_tersedia = TransaksiModel.get_total_sisa_qty(barcode_val)
 
             if self.total_stok_tersedia <= 0:
                 self.show_notif("Stok Habis", f"Stok barang {barcode_val} sudah habis!", is_error=True)
-                conn.close(); return False
+                return False
 
-            cursor.execute("""
-                SELECT t.id_transaksi, t.id_barang, t.tanggal, t.sisa_qty, 
-                       b.nama_barang, b.rak, l.nama_lokasi as slot
-                FROM transaksi t
-                JOIN barang_baru b ON t.id_barang = b.id_barang
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi
-                WHERE b.barcode = ? AND t.jenis = 'MASUK' AND t.sisa_qty > 0
-                ORDER BY t.tanggal ASC LIMIT 1
-            """, (barcode_val,))
-            row = cursor.fetchone()
-            if row:
+            rows = TransaksiModel.get_fifo_batches(barcode_val)
+            if rows:
+                row = rows[0]
                 self.batch_pemandu = {"id_tr": row["id_transaksi"], "id_br": row["id_barang"], "sisa": row["sisa_qty"], "slot": row["slot"]}
                 self.nama_barang.setText(row["nama_barang"])
                 self.rak_pemandu.setText(row["rak"] or "-")
                 self.slot_pemandu.setText(row["slot"])
                 self.tgl_masuk_pemandu.setText(row["tanggal"])
                 self.stok_display.setText(str(self.total_stok_tersedia))
-                conn.close(); return True
-            conn.close(); return False
+                return True
+            return False
         except Exception as e:
             self.show_notif("Error", f"Terjadi kesalahan saat mencari data FIFO: {e}", is_error=True)
             return False
@@ -316,16 +300,7 @@ class BarangKeluarPage(QWidget):
 
     def proses_multi_slot(self, total_qty):
         barcode = self.input_barcode.text().strip()
-        conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-        cursor.execute("""
-            SELECT t.id_transaksi, t.id_barang, t.sisa_qty, l.nama_lokasi as slot
-            FROM transaksi t JOIN barang_baru b ON t.id_barang = b.id_barang
-            LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi
-            WHERE b.barcode = ? AND t.jenis = 'MASUK' AND t.sisa_qty > 0
-            ORDER BY t.tanggal ASC
-        """, (barcode,))
-        
-        batches = cursor.fetchall()
+        batches = TransaksiModel.get_fifo_batches(barcode)
         sisa_hitung = total_qty
         rencana_potong = []
         ringkasan_slot = {} 
@@ -353,18 +328,11 @@ class BarangKeluarPage(QWidget):
             ket = self.keterangan_input.text().strip()
             try:
                 for p in rencana_potong:
-                    cursor.execute("UPDATE transaksi SET sisa_qty = sisa_qty - ? WHERE id_transaksi = ?", (p["qty"], p["id_tr"]))
-                    cursor.execute("UPDATE barang_baru SET stok = stok - ? WHERE id_barang = ?", (p["qty"], p["id_br"]))
-                    cursor.execute("""
-                        INSERT INTO transaksi (id_barang, jenis, stok_sebelum, stok_sesudah, metode, tanggal, keterangan)
-                        VALUES (?, 'KELUAR', ?, ?, ?, ?, ?)
-                    """, (p["id_br"], p["sisa_awal"], p["sisa_awal"] - p["qty"], self.metode_input, w_skrg, ket))
-                conn.commit()
+                    TransaksiModel.update_batch_sisa(p["id_tr"], p["qty"])
+                    BarangModel.update_stok(p["id_br"], BarangModel.get_by_id(p["id_br"])["stok"] - p["qty"])
+                    TransaksiModel.record_transaksi(p["id_br"], 'KELUAR', p["sisa_awal"], p["sisa_awal"] - p["qty"], self.metode_input, w_skrg, ket)
                 catat_log(f"Barang Keluar: {ket} menerima -{total_qty} {self.nama_barang.text()} via FIFO")
-            except Exception as e:
-                conn.rollback(); raise e
-            finally:
-                conn.close()
+            except Exception as e: raise e
             
             self.show_notif("Berhasil", "Data pengeluaran telah diproses.")
             
@@ -424,36 +392,40 @@ class BarangKeluarPage(QWidget):
         except Exception as e:
             self.show_notif("Gagal PDF", str(e), is_error=True)
 
-    def scan_via_kamera(self):
+    def scan_kamera(self):
         cam_url = get_ip_camera_url()
-        cam_source = cam_url if cam_url else 0
+        cap = None
         
-        cap = cv2.VideoCapture(cam_source)
+        if cam_url:
+            cap = cv2.VideoCapture(cam_url)
+            ret, _ = cap.read()
+            if not ret:
+                cap.release()
+                cap = None
+        
+        if cap is None:
+            cap = cv2.VideoCapture(0)
+            
         if not cap.isOpened():
-            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            self.show_notif("Gagal", "Tidak dapat membuka kamera (IP maupun Lokal).", is_error=True)
             return
-
+            
+        barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
             
-            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
             frame = cv2.resize(frame, (640, 480))
-            
-            bv = None
-            for obj in pyzbar.decode(frame): 
-                bv = obj.data.decode('utf-8')
-                break
+            for obj in pyzbar.decode(frame):
+                barcode_data = obj.data.decode('utf-8'); break
                 
-            cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
+            cv2.imshow("SCANNER KELUAR (ESC: Keluar)", frame)
             
-            if bv:
+            if barcode_data:
                 winsound.Beep(1000, 150)
                 self.metode_input = "SCAN"
                 
-                # AUTO SINKRON & AKUMULASI KOMULATIF
-                if self.input_barcode.text() == bv and self.batch_pemandu:
-                    # Jika barang sama, tambah +1 (cek stok tersedia)
+                if self.input_barcode.text() == barcode_data and self.batch_pemandu:
                     current_qty = int(self.jumlah.text() or 0)
                     if current_qty + 1 > self.total_stok_tersedia:
                         winsound.Beep(500, 500)
@@ -461,12 +433,9 @@ class BarangKeluarPage(QWidget):
                     else:
                         self.jumlah.setText(str(current_qty + 1))
                 else:
-                    # Jika barang baru/berbeda, set ke 1 dan load data
-                    self.input_barcode.setText(bv)
-                    if self.cari_fifo_logic(bv):
+                    self.input_barcode.setText(barcode_data)
+                    if self.cari_fifo_logic(barcode_data):
                         self.jumlah.setText("1")
-                
-                # Close automatically after detection (User Request)
                 break
                 
             if cv2.waitKey(1) & 0xFF == 27: break 
@@ -485,16 +454,8 @@ class BarangKeluarPage(QWidget):
     def load_transaksi(self):
         try:
             cp = self.settings.value("checkpoint_keluar", "2000-01-01 00:00:00")
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT t.tanggal, b.barcode, b.nama_barang, b.rak, l.nama_lokasi as slot,
-                       (t.stok_sebelum - t.stok_sesudah) as qty, t.stok_sebelum, t.stok_sesudah, t.keterangan
-                FROM transaksi t 
-                JOIN barang_baru b ON t.id_barang = b.id_barang 
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi
-                WHERE t.jenis = 'KELUAR' AND t.tanggal > ? ORDER BY t.tanggal DESC LIMIT 200
-            """, (cp,))
-            rows = cursor.fetchall(); self.table.setRowCount(0)
+            rows = TransaksiModel.get_history_paged('KELUAR', cp)
+            self.table.setRowCount(0)
             for i, row in enumerate(rows):
                 self.table.insertRow(i)
                 data = [str(row["tanggal"]), str(row["barcode"]), str(row["nama_barang"]), str(row["rak"]), str(row["slot"]), f"-{row['qty']}", str(row["stok_sebelum"]), str(row["stok_sesudah"]), str(row["keterangan"] or "-")]
@@ -502,5 +463,4 @@ class BarangKeluarPage(QWidget):
                     ti = QTableWidgetItem(text)
                     if col >= 5: ti.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(i, col, ti)
-            conn.close()
         except Exception as e: print(f"Load Riwayat Error: {e}")

@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
-from database.connection import get_connection, catat_log
+from database.connection import catat_log
+from models.barang_model import BarangModel
+from models.pendukung_model import PendukungModel
 from datetime import datetime
 from utils.config_manager import get_ip_camera_url
 
@@ -128,7 +130,7 @@ class BarangFormPage(QWidget):
             QPushButton { background-color: #3b82f6; color: white; padding: 12px 20px; font-weight: bold; border-radius: 10px; border: none; }
             QPushButton:hover { background-color: #2563eb; }
         """)
-        self.btn_scan.clicked.connect(self.scan_barcode)
+        self.btn_scan.clicked.connect(self.scan_kamera)
         bc_h_lay.addWidget(self.input_barcode)
         bc_h_lay.addWidget(self.btn_scan)
         bc_v_lay.addLayout(bc_h_lay)
@@ -201,21 +203,15 @@ class BarangFormPage(QWidget):
     def load_kategori(self):
         self.combo_kategori.clear()
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT id_kategori, nama_kategori FROM kategori ORDER BY nama_kategori")
-            rows = cursor.fetchall()
+            rows = PendukungModel.get_all_kategori()
             for r in rows: self.combo_kategori.addItem(r[1], r[0])
-            conn.close()
         except Exception as e: print(f"Load Kategori Error: {e}")
 
     def load_lokasi(self):
         self.combo_lokasi.clear()
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT id_lokasi, nama_lokasi FROM lokasi ORDER BY nama_lokasi")
-            rows = cursor.fetchall()
+            rows = PendukungModel.get_all_lokasi()
             for r in rows: self.combo_lokasi.addItem(r[1], r[0])
-            conn.close()
         except Exception as e: print(f"Load Lokasi Error: {e}")
 
     def set_edit_mode(self, id_b, data):
@@ -247,30 +243,42 @@ class BarangFormPage(QWidget):
         self.input_stok_min.clear()
         self.id_barang_aktif = None
 
-    def scan_barcode(self):
+    def scan_kamera(self):
         cam_url = get_ip_camera_url()
-        cam_source = cam_url if cam_url else 0
+        cap = None
         
-        cap = cv2.VideoCapture(cam_source)
+        if cam_url:
+            cap = cv2.VideoCapture(cam_url)
+            ret, _ = cap.read()
+            if not ret:
+                cap.release()
+                cap = None
+        
+        if cap is None:
+            cap = cv2.VideoCapture(0)
+            
         if not cap.isOpened():
-            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            self.show_notif("Gagal", "Tidak dapat membuka kamera (IP maupun Lokal).", is_error=True)
             return
+            
         barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
             
-            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
             frame = cv2.resize(frame, (640, 480))
-            
             for obj in pyzbar.decode(frame):
                 barcode_data = obj.data.decode('utf-8'); break
-            cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
+            cv2.imshow("SCANNER TAMBAH BARANG (ESC: Keluar)", frame)
             if barcode_data or cv2.waitKey(1) & 0xFF == 27: break
         cap.release(); cv2.destroyAllWindows()
         if barcode_data:
             winsound.Beep(1000, 200)
             self.input_barcode.setText(barcode_data)
+            # The original instruction had `self.cari_barang()` here, but it's not defined in the provided context.
+            # Assuming it was a placeholder or intended for a different class/context,
+            # I'm omitting it to maintain syntactic correctness and avoid undefined calls.
+            # If `cari_barang` is meant to be called, it needs to be defined in this class.
 
     def show_notif(self, title, message, is_error=False):
         msg = QMessageBox(self)
@@ -299,39 +307,23 @@ class BarangFormPage(QWidget):
 
         # AUTO GENERATE BARCODE JIKA KOSONG
         if not barcode:
-            try:
-                conn = get_connection(); cursor = conn.cursor()
-                cursor.execute("SELECT MAX(id_barang) FROM barang_baru")
-                res = cursor.fetchone()[0] or 0
-                conn.close()
-                barcode = f"BRG{(res + 1):05d}"
-                self.input_barcode.setText(barcode)
-            except Exception as e:
-                print(f"Error auto-generate barcode: {e}")
-                self.show_notif("Error", "Gagal auto-generate barcode otomatis.", is_error=True)
-                return
+            barcode = BarangModel.generate_next_barcode()
+            self.input_barcode.setText(barcode)
 
         if not nama or not barcode:
             self.show_notif("Peringatan", "Nama dan Barcode wajib diisi!", is_error=True)
             return
 
         try:
-            conn = get_connection(); cursor = conn.cursor()
             if self.id_barang_aktif:
-                cursor.execute("""
-                    UPDATE barang_baru SET barcode=?, nama_barang=?, rak=?, id_kategori=?, 
-                    id_lokasi=?, satuan=?, stok_minimum=? WHERE id_barang=?
-                """, (barcode, nama, rak, id_kat, id_lok, satuan, stok_min, self.id_barang_aktif))
-                msg = f"Update Barang: {nama}"
+                success = BarangModel.update(self.id_barang_aktif, barcode, nama, rak, id_kat, id_lok, satuan, stok_min)
+                msg_log = f"Update Barang: {nama}"
             else:
-                cursor.execute("""
-                    INSERT INTO barang_baru (barcode, nama_barang, rak, id_kategori, id_lokasi, satuan, stok_minimum, stok)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-                """, (barcode, nama, rak, id_kat, id_lok, satuan, stok_min))
-                msg = f"Tambah Barang: {nama}"
+                success = BarangModel.add(barcode, nama, rak, id_kat, id_lok, satuan, stok_min)
+                msg_log = f"Tambah Barang: {nama}"
             
-            conn.commit(); conn.close()
-            catat_log(msg)
+            if success:
+                catat_log(msg_log)
             
             # Auto-generate/sync barcode
             import os, sys

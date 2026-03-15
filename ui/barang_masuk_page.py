@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSettings, QStringListModel
 from PySide6.QtGui import QColor
 
-from database.connection import get_connection, catat_log
+from database.connection import catat_log
+from models.barang_model import BarangModel
+from models.transaksi_model import TransaksiModel
 from utils.config_manager import get_ip_camera_url
 
 def get_app_path():
@@ -45,11 +47,8 @@ class BarangMasukPage(QWidget):
 
     def update_suplier_autocomplete(self):
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT keterangan FROM transaksi WHERE jenis='MASUK' AND keterangan != '-' AND keterangan IS NOT NULL")
-            supliers = [r[0] for r in cursor.fetchall() if r[0].strip()]
+            supliers = TransaksiModel.get_suplier_list()
             self.suplier_model.setStringList(supliers)
-            conn.close()
         except Exception as e: print(f"Print Label Error: {e}")
 
     def init_ui(self):
@@ -106,7 +105,7 @@ class BarangMasukPage(QWidget):
         self.btn_scan_kamera.setCursor(Qt.PointingHandCursor)
         self.btn_scan_kamera.setFixedSize(120, 40)
         self.btn_scan_kamera.setStyleSheet("background-color: #3b82f6; color: white; font-weight: bold;")
-        self.btn_scan_kamera.clicked.connect(self.scan_via_kamera)
+        self.btn_scan_kamera.clicked.connect(self.scan_kamera)
 
         top_bar_layout.addWidget(self.input_barcode, 1)
         top_bar_layout.addWidget(self.btn_cari)
@@ -264,16 +263,8 @@ class BarangMasukPage(QWidget):
     def load_transaksi(self):
         try:
             checkpoint = self.settings.value("checkpoint_masuk", "2000-01-01 00:00:00")
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT t.tanggal, b.barcode, b.nama_barang, b.rak, l.nama_lokasi as slot,
-                       (t.stok_sesudah - t.stok_sebelum) as qty, t.stok_sebelum, t.stok_sesudah, t.metode, t.keterangan
-                FROM transaksi t 
-                JOIN barang_baru b ON t.id_barang = b.id_barang 
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi
-                WHERE t.jenis = 'MASUK' AND t.tanggal > ? ORDER BY t.tanggal DESC LIMIT 200
-            """, (checkpoint,))
-            rows = cursor.fetchall(); self.table.setRowCount(0)
+            rows = TransaksiModel.get_history_paged('MASUK', checkpoint)
+            self.table.setRowCount(0)
             for i, row in enumerate(rows):
                 self.table.insertRow(i)
                 data = [str(row["tanggal"]), str(row["barcode"]), str(row["nama_barang"]), str(row["rak"]), str(row["slot"]), f"+{row['qty']}", str(row["stok_sebelum"]), str(row["stok_sesudah"]), str(row["metode"]), str(row["keterangan"] or "-")]
@@ -281,7 +272,6 @@ class BarangMasukPage(QWidget):
                     ti = QTableWidgetItem(text)
                     if col in [0, 5, 6, 7]: ti.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(i, col, ti)
-            conn.close()
         except Exception as e: print(f"Load Riwayat Error: {e}")
 
     def cari_barang_manual(self):
@@ -293,15 +283,7 @@ class BarangMasukPage(QWidget):
     def cari_barang_logic(self, barcode_val):
         if not barcode_val: return False
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT b.id_barang, b.nama_barang, b.stok, b.rak, k.nama_kategori, l.nama_lokasi as nama_slot
-                FROM barang_baru b 
-                LEFT JOIN kategori k ON b.id_kategori = k.id_kategori
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi 
-                WHERE b.barcode = ?
-            """, (barcode_val,))
-            rows = cursor.fetchall(); conn.close()
+            rows = BarangModel.get_by_barcode(barcode_val)
             if rows:
                 self.nama_barang.setText(rows[0]["nama_barang"])
                 self.kat_detail.setText(rows[0]["nama_kategori"] if rows[0]["nama_kategori"] else "-")
@@ -321,47 +303,49 @@ class BarangMasukPage(QWidget):
             self.rak_detail.setText(data["rak"] if data["rak"] else "-")
             self.stok_display.setText(str(data["stok"]))
 
-    def scan_via_kamera(self):
+    def scan_kamera(self):
         cam_url = get_ip_camera_url()
-        cam_source = cam_url if cam_url else 0
+        cap = None
         
-        cap = cv2.VideoCapture(cam_source)
+        if cam_url:
+            cap = cv2.VideoCapture(cam_url)
+            ret, _ = cap.read()
+            if not ret:
+                cap.release()
+                cap = None
+        
+        if cap is None:
+            cap = cv2.VideoCapture(0)
+            
         if not cap.isOpened():
-            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            self.show_notif("Gagal", "Tidak dapat membuka kamera (IP maupun Lokal).", is_error=True)
             return
-
+            
+        barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
             
-            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
             frame = cv2.resize(frame, (640, 480))
+            for obj in pyzbar.decode(frame):
+                barcode_data = obj.data.decode('utf-8'); break
             
-            barcode_val = None
-            for obj in pyzbar.decode(frame): 
-                barcode_val = obj.data.decode('utf-8')
-                break
-                
-            cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
+            cv2.imshow("SCANNER MASUK (ESC: Keluar)", frame)
             
-            if barcode_val:
+            if barcode_data:
                 winsound.Beep(1000, 150)
                 self.metode_input = "SCAN"
                 
                 # AUTO SINKRON & AKUMULASI KOMULATIF
-                if self.input_barcode.text() == barcode_val and self.id_barang_aktif:
-                    # Jika barang sama, tambah +1
+                if self.input_barcode.text() == barcode_data and self.id_barang_aktif:
                     try:
                         current_qty = int(self.jumlah.text() or 0)
                         self.jumlah.setText(str(current_qty + 1))
                     except: self.jumlah.setText("1")
                 else:
-                    # Jika barang baru/berbeda, set ke 1 dan load data
-                    self.input_barcode.setText(barcode_val)
-                    if self.cari_barang_logic(barcode_val):
+                    self.input_barcode.setText(barcode_data)
+                    if self.cari_barang_logic(barcode_data):
                         self.jumlah.setText("1")
-                
-                # Close automatically after detection (User Request)
                 break
                 
             if cv2.waitKey(1) & 0xFF == 27: break 
@@ -380,16 +364,11 @@ class BarangMasukPage(QWidget):
             st_akhir = self.stok_sekarang + qty
             w_skrg = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            conn = get_connection(); cursor = conn.cursor()
-            try:
-                cursor.execute("UPDATE barang_baru SET stok = ? WHERE id_barang = ?", (st_akhir, self.id_barang_aktif))
-                cursor.execute("INSERT INTO transaksi (id_barang, jenis, stok_sebelum, stok_sesudah, metode, sisa_qty, tanggal, keterangan) VALUES (?, 'MASUK', ?, ?, ?, ?, ?, ?)", (self.id_barang_aktif, self.stok_sekarang, st_akhir, self.metode_input, qty, w_skrg, ket))
-                conn.commit()
+            if BarangModel.update_stok(self.id_barang_aktif, st_akhir):
+                TransaksiModel.record_transaksi(self.id_barang_aktif, 'MASUK', self.stok_sekarang, st_akhir, self.metode_input, w_skrg, ket, sisa_qty=qty)
                 catat_log(f"Barang Masuk: {ket} mengirim +{qty} {self.nama_barang.text()}")
-            except Exception as e:
-                conn.rollback(); raise e
-            finally:
-                conn.close()
+            else:
+                 self.show_notif("Gagal", "Database error.", is_error=True); return
             
             self.generate_label_teks(self.nama_barang.text(), w_skrg, self.input_barcode.text())
             self.show_notif("Berhasil", f"Stok ditambah sebanyak {qty}.")

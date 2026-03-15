@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
-from database.connection import get_connection, catat_log
+from database.connection import catat_log
+from models.barang_model import BarangModel
+from models.pendukung_model import PendukungModel
 from datetime import datetime
 
 from utils.path_helper import get_resource_path, get_root_dir
@@ -102,7 +104,7 @@ class MasterBarangPage(QWidget):
             QPushButton { background-color: #3b82f6; color: white; font-weight: bold; height: 40px; border-radius: 8px; }
             QPushButton:hover { background-color: #2563eb; }
         """)
-        self.btn_scan_search.clicked.connect(lambda: self.scan_kamera(target="search"))
+        self.btn_scan_search.clicked.connect(self.scan_kamera)
         
         self.filter_kategori = QComboBox()
         self.filter_kategori.setMinimumWidth(200)
@@ -264,13 +266,24 @@ class MasterBarangPage(QWidget):
         msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
         msg.exec()
 
-    def scan_kamera(self, target="search"):
+    def scan_kamera(self):
         cam_url = get_ip_camera_url()
-        cam_source = cam_url if cam_url else 0
+        cap = None
         
-        cap = cv2.VideoCapture(cam_source)
+        # Cek IP Camera dulu
+        if cam_url:
+            cap = cv2.VideoCapture(cam_url)
+            ret, _ = cap.read()
+            if not ret:
+                cap.release()
+                cap = None
+        
+        # Fallback ke kamera lokal jika IP gagal
+        if cap is None:
+            cap = cv2.VideoCapture(0)
+            
         if not cap.isOpened():
-            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            self.show_notif("Gagal", "Tidak dapat membuka kamera (IP maupun Lokal).", is_error=True)
             return
             
         barcode_data = None
@@ -278,37 +291,22 @@ class MasterBarangPage(QWidget):
             ret, frame = cap.read()
             if not ret: break
             
-            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
             frame = cv2.resize(frame, (640, 480))
-            
             for obj in pyzbar.decode(frame):
-                barcode_data = obj.data.decode('utf-8')
-                break
-                
-            cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
-            
-            if barcode_data or cv2.waitKey(1) & 0xFF == 27:
-                break
-                
-        cap.release()
-        cv2.destroyAllWindows()
-        
+                barcode_data = obj.data.decode('utf-8'); break
+            cv2.imshow("SCANNER MASTER (ESC: Keluar)", frame)
+            if barcode_data or cv2.waitKey(1) & 0xFF == 27: break
+        cap.release(); cv2.destroyAllWindows()
         if barcode_data:
             winsound.Beep(1000, 200)
-            if target == "search":
-                self.search_barang.setText(barcode_data)
-                self.filter_barang()
+            self.search_barang.setText(barcode_data)
+            self.filter_barang()
             self.show_notif("Berhasil", f"Barcode terdeteksi: {barcode_data}")
 
     def load_barang(self):
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT b.*, k.nama_kategori, l.nama_lokasi FROM barang_baru b 
-                LEFT JOIN kategori k ON b.id_kategori = k.id_kategori 
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi ORDER BY b.id_barang ASC
-            """)
-            rows = cursor.fetchall(); self.table.setRowCount(0)
+            rows = BarangModel.get_all_with_details()
+            self.table.setRowCount(0)
             for i, row in enumerate(rows):
                 self.table.insertRow(i)
                 
@@ -343,7 +341,6 @@ class MasterBarangPage(QWidget):
                 for c in [1, 2, 4, 8, 9]:
                     if self.table.item(i, c):
                         self.table.item(i, c).setTextAlignment(Qt.AlignCenter)
-            conn.close()
         except Exception as e: print(f"Load Error: {e}")
 
     def get_checked_ids(self):
@@ -359,9 +356,7 @@ class MasterBarangPage(QWidget):
         ids = self.get_checked_ids()
         if not ids: return
         
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT id_kategori, nama_kategori FROM kategori ORDER BY nama_kategori")
-        kats = cursor.fetchall(); conn.close()
+        kats = PendukungModel.get_all_kategori()
         kat_names = [r[1] for r in kats]
         if not kat_names: return
         
@@ -382,22 +377,17 @@ class MasterBarangPage(QWidget):
 
         if ok and item:
             new_id = kats[kat_names.index(item)][0]
-            try:
-                conn = get_connection(); cursor = conn.cursor()
-                for bid in ids:
-                    cursor.execute("UPDATE barang_baru SET id_kategori = ? WHERE id_barang = ?", (new_id, bid))
-                conn.commit(); conn.close()
+            if BarangModel.bulk_update_kategori(ids, new_id):
                 catat_log(f"Bulk Update Kategori: {len(ids)} item diubah ke {item}")
                 self.load_barang(); self.show_notif("Sukses", f"{len(ids)} barang berhasil diperbarui.")
-            except Exception as e: self.show_notif("Gagal", str(e), is_error=True)
+            else:
+                 self.show_notif("Gagal", "Terjadi kesalahan database.", is_error=True)
 
     def bulk_update_lokasi(self):
         ids = self.get_checked_ids()
         if not ids: return
         
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT id_lokasi, nama_lokasi FROM lokasi ORDER BY nama_lokasi")
-        locs = cursor.fetchall(); conn.close()
+        locs = PendukungModel.get_all_lokasi()
         loc_names = [r[1] for r in locs]
         if not loc_names: return
         
@@ -418,14 +408,11 @@ class MasterBarangPage(QWidget):
 
         if ok and item:
             new_id = locs[loc_names.index(item)][0]
-            try:
-                conn = get_connection(); cursor = conn.cursor()
-                for bid in ids:
-                    cursor.execute("UPDATE barang_baru SET id_lokasi = ? WHERE id_barang = ?", (new_id, bid))
-                conn.commit(); conn.close()
+            if BarangModel.bulk_update_lokasi(ids, new_id):
                 catat_log(f"Bulk Update Lokasi: {len(ids)} item diubah ke {item}")
                 self.load_barang(); self.show_notif("Sukses", f"{len(ids)} barang berhasil diperbarui.")
-            except Exception as e: self.show_notif("Gagal", str(e), is_error=True)
+            else:
+                self.show_notif("Gagal", "Terjadi kesalahan database.", is_error=True)
 
     def filter_barang(self):
         kw = self.search_barang.text().lower()
@@ -458,17 +445,13 @@ class MasterBarangPage(QWidget):
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; } QPushButton { color: black; min-width: 70px; }")
         if msg.exec() == QMessageBox.Yes:
-            try:
-                self.remove_barcode_file(kode)
-                conn = get_connection(); cursor = conn.cursor()
-                cursor.execute("DELETE FROM barang_baru WHERE id_barang=?", (self.id_barang_aktif,))
-                conn.commit(); conn.close()
-
+            self.remove_barcode_file(kode)
+            if BarangModel.delete(id_b):
                 catat_log(f"Menghapus master barang: {kode} - {nama}")
-
                 self.clear_form(); self.load_barang()
                 self.show_notif("Berhasil", f"Data '{nama}' telah dihapus.")
-            except: self.show_notif("Error", "Gagal menghapus data.", is_error=True)
+            else:
+                self.show_notif("Error", "Gagal menghapus data.", is_error=True)
             
     def opname_stok(self):
         if not self.id_barang_aktif:
@@ -491,24 +474,15 @@ class MasterBarangPage(QWidget):
                 if stok_baru == stok_lama: return
                 
                 kemana = 'MASUK' if stok_baru > stok_lama else 'KELUAR'
-                conn = get_connection(); cursor = conn.cursor()
-                try:
-                    w_skrg = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    cursor.execute("UPDATE barang_baru SET stok = ? WHERE id_barang = ?", (stok_baru, self.id_barang_aktif))
-                    cursor.execute("""
-                        INSERT INTO transaksi (id_barang, jenis, stok_sebelum, stok_sesudah, metode, tanggal, keterangan) 
-                        VALUES (?, ?, ?, ?, 'MANUAL', ?, ?)
-                    """, (self.id_barang_aktif, kemana, stok_lama, stok_baru, w_skrg, "REVISI OPNAME STOK"))
-                    conn.commit()
-                except Exception as e:
-                    conn.rollback(); raise e
-                finally:
-                    conn.close()
-
-                catat_log(f"Opname Stok untuk {nama}: dari {stok_lama} menjadi {stok_baru}")
-
-                self.load_barang()
-                self.show_notif("Sukses", "Stok fisik berhasil disesuaikan beserta riwayat transaksinya.")
+                w_skrg = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                if BarangModel.update_stok(self.id_barang_aktif, stok_baru):
+                    from models.transaksi_model import TransaksiModel
+                    TransaksiModel.record_transaksi(self.id_barang_aktif, kemana, stok_lama, stok_baru, 'MANUAL', w_skrg, "REVISI OPNAME STOK")
+                    catat_log(f"Opname Stok for {nama}: from {stok_lama} to {stok_baru}")
+                    self.load_barang()
+                    self.show_notif("Sukses", "Stok fisik berhasil disesuaikan beserta riwayat transaksinya.")
+                else:
+                    self.show_notif("Error", "Gagal memperbarui stok.", is_error=True)
             except ValueError:
                 self.show_notif("Gagal", "Stok harus berupa angka bulat!", is_error=True)
             except Exception as e:
@@ -516,18 +490,14 @@ class MasterBarangPage(QWidget):
 
     def load_kategori(self):
         try:
-            conn = get_connection(); cursor = conn.cursor(); cursor.execute("SELECT * FROM kategori")
+            rows = PendukungModel.get_all_kategori()
             self.filter_kategori.clear(); self.filter_kategori.addItem("Semua Kategori")
-            for r in cursor.fetchall(): 
+            for r in rows: 
                 self.filter_kategori.addItem(r[1], r[0])
-            conn.close()
         except Exception as e: print(f"Load Kategori Error: {e}")
 
     def generate_barcode_id(self):
-        try:
-            conn = get_connection(); cursor = conn.cursor(); cursor.execute("SELECT MAX(id_barang) FROM barang_baru")
-            res = cursor.fetchone()[0] or 0; conn.close(); return f"BRG{(res + 1):05d}"
-        except Exception as e: print(f"Generate Barcode ID Error: {e}"); return "BRG-ERR"
+        return BarangModel.generate_next_barcode()
 
     def isi_form_dari_tabel(self, item):
         row = item.row()

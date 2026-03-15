@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
-from database.connection import get_connection
+from models.barang_model import BarangModel
+from models.transaksi_model import TransaksiModel
 from datetime import datetime, timedelta
 
 # Library untuk Grafik
@@ -243,14 +244,13 @@ class DashboardPage(QWidget):
 
     def load_categories_filter(self):
         try:
+            from models.pendukung_model import PendukungModel
             current = self.combo_filter_kritis.currentText()
             self.combo_filter_kritis.blockSignals(True)
             self.combo_filter_kritis.clear()
             self.combo_filter_kritis.addItem("Semua Kategori")
-            conn = get_connection(); cursor = conn.cursor()
-            cursor.execute("SELECT nama_kategori FROM kategori ORDER BY nama_kategori ASC")
-            for r in cursor.fetchall(): self.combo_filter_kritis.addItem(r[0])
-            conn.close()
+            rows = PendukungModel.get_all_kategori()
+            for r in rows: self.combo_filter_kritis.addItem(r[1])
             if current: self.combo_filter_kritis.setCurrentText(current)
             self.combo_filter_kritis.blockSignals(False)
         except Exception as e: print(f"Load Dashboard Error: {e}")
@@ -312,49 +312,38 @@ class DashboardPage(QWidget):
 
     def refresh_data(self):
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
             h_ini = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("SELECT COUNT(*) as t FROM barang_baru"); self.card_total.val_label.setText(str(cursor.fetchone()['t']))
-            cursor.execute("SELECT COUNT(*) as t FROM barang_baru WHERE stok <= stok_minimum"); self.card_kritis.val_label.setText(str(cursor.fetchone()['t']))
-            cursor.execute("SELECT COUNT(*) as t FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f'{h_ini}%',)); self.card_masuk.val_label.setText(str(cursor.fetchone()['t']))
-            cursor.execute("SELECT COUNT(*) as t FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f'{h_ini}%',)); self.card_keluar.val_label.setText(str(cursor.fetchone()['t']))
+            self.card_total.val_label.setText(str(BarangModel.get_total_count()))
+            self.card_kritis.val_label.setText(str(BarangModel.get_kritis_count()))
+            self.card_masuk.val_label.setText(str(TransaksiModel.get_daily_count('MASUK', h_ini)))
+            self.card_keluar.val_label.setText(str(TransaksiModel.get_daily_count('KELUAR', h_ini)))
             
             dates, data_in, data_out = [], [], []
             timeframe_val = self.combo_timeframe.currentText()
             
             if timeframe_val == "1 Tahun Terakhir":
-                # Mengumpulkan data 12 bulan terakhir
                 for i in range(11, -1, -1):
-                    # Kita menghitung bulan mundur
                     current_date = datetime.now()
                     target_month = current_date.month - i
                     target_year = current_date.year
                     while target_month <= 0:
                         target_month += 12
                         target_year -= 1
-                        
-                    # Format: 2023-01
                     period_str = f"{target_year}-{target_month:02d}"
                     label_str = datetime(target_year, target_month, 1).strftime('%b %y')
                     dates.append(label_str)
-                    
-                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f"{period_str}%",))
-                    data_in.append(cursor.fetchone()['c'])
-                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f"{period_str}%",))
-                    data_out.append(cursor.fetchone()['c'])
+                    data_in.append(TransaksiModel.get_daily_count('MASUK', period_str))
+                    data_out.append(TransaksiModel.get_daily_count('KELUAR', period_str))
             else:
-                # 7 Hari Terakhir atau 30 Hari Terakhir
                 days_count = 30 if timeframe_val == "30 Hari Terakhir" else 7
                 for i in range(days_count - 1, -1, -1):
                     t = (datetime.now() - timedelta(days=i))
                     dates.append(t.strftime('%d %b'))
-                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
-                    data_in.append(cursor.fetchone()['c'])
-                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
-                    data_out.append(cursor.fetchone()['c'])
+                    t_str = t.strftime('%Y-%m-%d')
+                    data_in.append(TransaksiModel.get_daily_count('MASUK', t_str))
+                    data_out.append(TransaksiModel.get_daily_count('KELUAR', t_str))
                     
             self.update_charts(dates, data_in, data_out)
-            conn.close()
             self.refresh_monitor_table()
             self.refresh_prediksi_table()
             self.refresh_analytics()
@@ -362,16 +351,8 @@ class DashboardPage(QWidget):
 
     def refresh_analytics(self):
         try:
-            conn = get_connection(); cursor = conn.cursor()
-            
             # --- PIE KATEGORI ---
-            cursor.execute("""
-                SELECT k.nama_kategori, SUM(b.stok) 
-                FROM barang_baru b 
-                JOIN kategori k ON b.id_kategori = k.id_kategori 
-                GROUP BY k.id_kategori
-            """)
-            cat_data = cursor.fetchall()
+            cat_data = BarangModel.get_distribusi_kategori()
             self.fig_cat.clear(); ax_cat = self.fig_cat.add_subplot(111)
             
             if not cat_data:
@@ -388,12 +369,7 @@ class DashboardPage(QWidget):
             self.fig_cat.tight_layout(); self.canvas_cat.draw()
 
             # --- PIE RAK ---
-            cursor.execute("""
-                SELECT rak, SUM(stok) 
-                FROM barang_baru 
-                GROUP BY rak
-            """)
-            rak_data = cursor.fetchall()
+            rak_data = BarangModel.get_distribusi_rak()
             self.fig_loc.clear(); ax_loc = self.fig_loc.add_subplot(111)
             
             if not rak_data:
@@ -408,20 +384,13 @@ class DashboardPage(QWidget):
                 else:
                     ax_loc.text(0.5, 0.5, "Stock Empty", ha='center', va='center', color="#94a3b8")
             self.fig_loc.tight_layout(); self.canvas_loc.draw()
-
-            conn.close()
         except Exception as e: print(f"Analytics Error: {e}")
 
     def refresh_monitor_table(self):
         try:
             f_val = self.combo_filter_kritis.currentText()
-            conn = get_connection(); cursor = conn.cursor()
-            query = "SELECT b.barcode, b.nama_barang, COALESCE(k.nama_kategori, '-'), b.rak, COALESCE(l.nama_lokasi, '-'), b.stok FROM barang_baru b LEFT JOIN kategori k ON b.id_kategori = k.id_kategori LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi WHERE b.stok <= b.stok_minimum"
-            params = []
-            if f_val and f_val != "Semua Kategori":
-                query += " AND k.nama_kategori = ?"; params.append(f_val)
-            query += " ORDER BY b.stok ASC LIMIT 20"
-            cursor.execute(query, params); rows = cursor.fetchall(); self.table_kritis.setRowCount(0)
+            rows = BarangModel.get_kritis_data(category=f_val, limit=20)
+            self.table_kritis.setRowCount(0)
             
             # Tray Notification Integration
             from PySide6.QtWidgets import QSystemTrayIcon
@@ -445,24 +414,12 @@ class DashboardPage(QWidget):
                     item.setForeground(QColor("#b91c1c" if c == 5 else "#1e293b"))
                     if c == 5: item.setTextAlignment(Qt.AlignCenter); item.setFont(QFont("Segoe UI", weight=QFont.Bold))
                     self.table_kritis.setItem(i, c, item)
-            self.adjust_table_height(); conn.close()
+            self.adjust_table_height()
         except Exception as e: print(f"Table Error: {e}")
 
     def refresh_prediksi_table(self):
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            date_30_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-            
-            # Ambil semua transaksi KELUAR 30 hari terakhir
-            query = """
-                SELECT t.id_barang, b.nama_barang, b.stok, t.tanggal, t.stok_sebelum, t.stok_sesudah 
-                FROM transaksi t
-                JOIN barang_baru b ON t.id_barang = b.id_barang
-                WHERE t.jenis = 'KELUAR' AND t.tanggal >= ?
-                ORDER BY t.tanggal ASC
-            """
-            cursor.execute(query, (date_30_days_ago,))
-            rows = cursor.fetchall()
+            rows = TransaksiModel.get_recent_out_transactions(days=30)
             
             # Kelompokkan histori per barang
             history_per_item = {}
@@ -548,5 +505,5 @@ class DashboardPage(QWidget):
                     font = QFont(); font.setBold(True); item_hari.setFont(font)
                     self.table_prediksi.setItem(i, 3, item_hari)
                     
-            self.adjust_table_height(); conn.close()
+            self.adjust_table_height()
         except Exception as e: print(f"Prediksi ML Error: {e}")

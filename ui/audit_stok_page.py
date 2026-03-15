@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
-from database.connection import get_connection, catat_log
+from database.connection import catat_log
+from models.barang_model import BarangModel
+from models.transaksi_model import TransaksiModel
 from datetime import datetime
 from utils.config_manager import get_ip_camera_url
 
@@ -145,11 +147,20 @@ class AuditStokPage(QWidget):
 
     def scan_kamera_audit(self):
         cam_url = get_ip_camera_url()
-        cam_source = cam_url if cam_url else 0
+        cap = None
         
-        cap = cv2.VideoCapture(cam_source)
+        if cam_url:
+            cap = cv2.VideoCapture(cam_url)
+            ret, _ = cap.read()
+            if not ret:
+                cap.release()
+                cap = None
+        
+        if cap is None:
+            cap = cv2.VideoCapture(0)
+            
         if not cap.isOpened():
-            QMessageBox.critical(self, "Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).")
+            QMessageBox.critical(self, "Gagal", "Tidak dapat membuka kamera (IP maupun Lokal).")
             return
             
         barcode_data = None
@@ -157,7 +168,6 @@ class AuditStokPage(QWidget):
             ret, frame = cap.read()
             if not ret: break
             
-            # RESIZE FRAME (Konsistensi UX)
             frame = cv2.resize(frame, (640, 480))
             
             for obj in pyzbar.decode(frame):
@@ -177,19 +187,12 @@ class AuditStokPage(QWidget):
 
     def tambah_ke_audit(self, barcode):
         try:
-            conn = get_connection(); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-            cursor.execute("""
-                SELECT b.id_barang, b.nama_barang, b.stok, l.nama_lokasi 
-                FROM barang_baru b 
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi
-                WHERE b.barcode = ?
-            """, (barcode,))
-            row = cursor.fetchone()
-            conn.close()
+            rows = BarangModel.get_by_barcode(barcode)
 
-            if not row:
+            if not rows:
                 return QMessageBox.warning(self, "Tidak Ditemukan", f"Barang dengan barcode {barcode} tidak ada di database.")
 
+            row = rows[0]
             id_b = row['id_barang']
             if id_b in self.audit_data:
                 self.audit_data[id_b]['fisik'] += 1
@@ -197,7 +200,7 @@ class AuditStokPage(QWidget):
                 self.audit_data[id_b] = {
                     'barcode': barcode,
                     'nama': row['nama_barang'],
-                    'lokasi': row['nama_lokasi'] or "-",
+                    'lokasi': row['nama_slot'] or "-",
                     'sistem': row['stok'],
                     'fisik': 1
                 }
@@ -254,18 +257,12 @@ class AuditStokPage(QWidget):
         
         if msg.exec() == QMessageBox.Yes:
             try:
-                conn = get_connection(); cursor = conn.cursor()
                 w_skrg = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 for id_b, data in self.audit_data.items():
                     if data['sistem'] != data['fisik']:
-                        cursor.execute("UPDATE barang_baru SET stok = ? WHERE id_barang = ?", (data['fisik'], id_b))
-                        # Catat transaksi penyesuaian
+                        BarangModel.update_stok(id_b, data['fisik'])
                         jenis = 'MASUK' if data['fisik'] > data['sistem'] else 'KELUAR'
-                        cursor.execute("""
-                            INSERT INTO transaksi (id_barang, jenis, stok_sebelum, stok_sesudah, metode, tanggal, keterangan)
-                            VALUES (?, ?, ?, ?, 'AUDIT', ?, ?)
-                        """, (id_b, jenis, data['sistem'], data['fisik'], w_skrg, "PENYESUAIAN STOK OPNAME"))
-                conn.commit(); conn.close()
+                        TransaksiModel.record_transaksi(id_b, jenis, data['sistem'], data['fisik'], 'AUDIT', w_skrg, "PENYESUAIAN STOK OPNAME")
                 catat_log(f"Finalisasi Audit Stok: {count} item diproses.")
                 self.audit_data = {}
                 self.refresh_table()
