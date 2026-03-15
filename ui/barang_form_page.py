@@ -134,10 +134,13 @@ class BarangFormPage(QWidget):
         grid.addWidget(barcode_container, 0, 0, 1, 2)
 
         self.input_nama = QLineEdit(); self.input_nama.setPlaceholderText("Masukkan nama barang...")
+        self.input_nama.textChanged.connect(self.auto_fill_rak)
         add_field("NAMA BARANG", self.input_nama, 1, 0, 2)
 
-        self.input_rak = QLineEdit(); self.input_rak.setPlaceholderText("Contoh: R-01, A2")
-        add_field("KODE RAK", self.input_rak, 2, 0)
+        self.input_rak = QLineEdit(); self.input_rak.setPlaceholderText("Otomatis Terisi")
+        self.input_rak.setReadOnly(True)
+        self.input_rak.setStyleSheet("background-color: #f1f5f9; color: #64748b; font-weight: bold; border: 1px dashed #cbd5e1;")
+        add_field("NAMA RAK", self.input_rak, 2, 0)
 
         self.input_satuan = QLineEdit(); self.input_satuan.setPlaceholderText("Contoh: Pcs, Box")
         add_field("SATUAN", self.input_satuan, 2, 1)
@@ -147,7 +150,6 @@ class BarangFormPage(QWidget):
 
         self.combo_lokasi = QComboBox()
         add_field("LOKASI PENYIMPANAN", self.combo_lokasi, 3, 1)
-
         self.input_stok_min = QLineEdit(); self.input_stok_min.setPlaceholderText("Batas notifikasi...")
         add_field("STOK MINIMUM", self.input_stok_min, 4, 0, 2)
 
@@ -203,7 +205,7 @@ class BarangFormPage(QWidget):
             rows = cursor.fetchall()
             for r in rows: self.combo_kategori.addItem(r[1], r[0])
             conn.close()
-        except: pass
+        except Exception as e: print(f"Load Kategori Error: {e}")
 
     def load_lokasi(self):
         self.combo_lokasi.clear()
@@ -213,7 +215,7 @@ class BarangFormPage(QWidget):
             rows = cursor.fetchall()
             for r in rows: self.combo_lokasi.addItem(r[1], r[0])
             conn.close()
-        except: pass
+        except Exception as e: print(f"Load Lokasi Error: {e}")
 
     def set_edit_mode(self, id_b, data):
         """Siapkan form untuk mode edit."""
@@ -259,6 +261,22 @@ class BarangFormPage(QWidget):
             winsound.Beep(1000, 200)
             self.input_barcode.setText(barcode_data)
 
+    def show_notif(self, title, message, is_error=False):
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+        msg.setIcon(QMessageBox.Critical if is_error else QMessageBox.Information)
+        msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+        msg.exec()
+
+    def auto_fill_rak(self, text):
+        if self.id_barang_aktif is None:  # Hanya auto-fill saat mode tambah baru
+            if text.strip():
+                # Format: "RAK SATU DUA" (Tanpa tanda strip, huruf kapital semua)
+                nama_bersih = text.strip().upper()
+                self.input_rak.setText(f"RAK {nama_bersih}")
+            else:
+                self.input_rak.clear()
     def simpan_barang(self):
         nama = self.input_nama.text().strip()
         barcode = self.input_barcode.text().strip()
@@ -268,8 +286,23 @@ class BarangFormPage(QWidget):
         id_kat = self.combo_kategori.currentData()
         id_lok = self.combo_lokasi.currentData()
 
+        # AUTO GENERATE BARCODE JIKA KOSONG
+        if not barcode:
+            try:
+                conn = get_connection(); cursor = conn.cursor()
+                cursor.execute("SELECT MAX(id_barang) FROM barang_baru")
+                res = cursor.fetchone()[0] or 0
+                conn.close()
+                barcode = f"BRG{(res + 1):05d}"
+                self.input_barcode.setText(barcode)
+            except Exception as e:
+                print(f"Error auto-generate barcode: {e}")
+                self.show_notif("Error", "Gagal auto-generate barcode otomatis.", is_error=True)
+                return
+
         if not nama or not barcode:
-            return QMessageBox.warning(self, "Peringatan", "Nama dan Barcode wajib diisi!")
+            self.show_notif("Peringatan", "Nama dan Barcode wajib diisi!", is_error=True)
+            return
 
         try:
             conn = get_connection(); cursor = conn.cursor()
@@ -299,8 +332,8 @@ class BarangFormPage(QWidget):
             barcode_dir = os.path.join(root_dir, "barcode")
             generate_barcode_image(barcode, barcode_dir)
 
-            QMessageBox.information(self, "Berhasil", "Data barang berhasil disimpan!")
+            self.show_notif("Berhasil", "Data barang berhasil disimpan!")
             self.barang_saved.emit()
             self.back_requested.emit()
         except Exception as e:
-            QMessageBox.critical(self, "Gagal", f"Error Simpan: {e}")
+            self.show_notif("Gagal", f"Error Simpan: {e}", is_error=True)

@@ -31,9 +31,9 @@ class LoginWindow(QWidget):
         self.setStyleSheet(self.get_main_style())
 
     def get_asset_path(self, filename):
-        """Helper untuk mengambil path file asset secara konsisten."""
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(base_path, "assets", "images", filename)
+        """Helper path asset."""
+        from utils.path_helper import get_resource_path
+        return get_resource_path(os.path.join("assets", "images", filename))
 
     def init_ui(self):
         """Inisialisasi layout dan widget."""

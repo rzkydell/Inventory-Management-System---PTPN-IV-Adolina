@@ -41,7 +41,7 @@ class BarangKeluarPage(QWidget):
             penerimas = [r[0] for r in cursor.fetchall() if r[0].strip()]
             self.penerima_model.setStringList(penerimas)
             conn.close()
-        except: pass
+        except Exception as e: print(f"Load Barang Error: {e}")
 
     def init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -286,7 +286,7 @@ class BarangKeluarPage(QWidget):
                 self.stok_display.setText(str(self.total_stok_tersedia))
                 conn.close(); return True
             conn.close(); return False
-        except: return False
+        except Exception as e: print(f"Generate Barcode Error: {e}"); return False
 
     def validasi_input_manual(self, text):
         if not self.total_stok_tersedia or not text.isdigit(): return
@@ -476,4 +476,4 @@ class BarangKeluarPage(QWidget):
                     if col >= 5: ti.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(i, col, ti)
             conn.close()
-        except: pass
+        except Exception as e: print(f"Load Riwayat Error: {e}")

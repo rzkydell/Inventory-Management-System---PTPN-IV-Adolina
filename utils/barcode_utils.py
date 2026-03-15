@@ -68,7 +68,7 @@ def sync_barcodes():
         for f in existing_files:
             if f not in db_filenames:
                 try: os.remove(os.path.join(barcode_dir, f))
-                except: pass
+                except Exception as e: print(f"Delete Orphan File Error: {e}")
 
         # 4. Action: Generate missing barcodes
         for b in db_barcodes:

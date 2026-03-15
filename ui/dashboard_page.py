@@ -235,7 +235,7 @@ class DashboardPage(QWidget):
             conn.close()
             if current: self.combo_filter_kritis.setCurrentText(current)
             self.combo_filter_kritis.blockSignals(False)
-        except: pass
+        except Exception as e: print(f"Load Dashboard Error: {e}")
 
     def adjust_table_height(self):
         h_height = self.table_kritis.horizontalHeader().height()

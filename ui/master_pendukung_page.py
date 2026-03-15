@@ -209,7 +209,7 @@ class MasterPendukungPage(QWidget):
                 self.table_kat.setItem(i, 1, QTableWidgetItem(str(row[1])))
                 self.create_action_buttons(self.table_kat, i, row[0], row[1], "kat")
             conn.close()
-        except: pass
+        except Exception as e: print(f"DB Operation Error: {e}")
 
     def tambah_lokasi_dialog(self):
         dialog = QInputDialog(self)
@@ -269,7 +269,7 @@ class MasterPendukungPage(QWidget):
                 self.table_lok.setItem(i, 1, QTableWidgetItem(str(row[1])))
                 self.create_action_buttons(self.table_lok, i, row[0], row[1], "lok")
             conn.close()
-        except: pass
+        except Exception as e: print(f"DB Operation Error: {e}")
 
     def show_notif(self, title, text, is_error=False):
         msg = QMessageBox(self)

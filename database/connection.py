@@ -1,7 +1,12 @@
 import sqlite3
 import os
 import sys
+import logging
 from datetime import datetime
+from contextlib import contextmanager
+
+# Setup module-level logger
+logger = logging.getLogger("InventoryApp")
 
 
 def get_base_path():
@@ -11,10 +16,9 @@ def get_base_path():
 
 
 def get_connection():
+    """Mendapatkan koneksi database. Caller bertanggung jawab menutup koneksi."""
     base_path = get_base_path()
-
     db_path = os.path.join(base_path, "database", "management_barang.db")
-
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     try:
@@ -22,7 +26,6 @@ def get_connection():
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         
-        # Inisialisasi Tabel Audit Log
         conn.execute("""
             CREATE TABLE IF NOT EXISTS log_aktivitas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,27 +36,41 @@ def get_connection():
         """)
         conn.commit()
         
-        # Tambahkan kolom keterangan jika belum ada untuk audit trail
         try:
             conn.execute("ALTER TABLE transaksi ADD COLUMN keterangan TEXT DEFAULT '-'")
             conn.commit()
         except sqlite3.OperationalError:
-            pass # Kolom sudah ada
+            pass  # Kolom sudah ada
         
         return conn
 
     except sqlite3.Error as e:
-        print(f"Gagal menyambung ke database: {e}")
+        logger.error(f"Gagal menyambung ke database: {e}")
         return None
+
+
+@contextmanager
+def safe_connection():
+    """Context manager untuk koneksi database yang aman — otomatis ditutup."""
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        if conn:
+            conn.close()
+
 
 def catat_log(aktivitas_teks):
     """Fungsi helper untuk mencatat riwayat aktivitas pengguna/Sistem."""
+    conn = None
     try:
         conn = get_connection()
         if conn:
             waktu_skrg = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO log_aktivitas (waktu, aktivitas) VALUES (?, ?)", (waktu_skrg, aktivitas_teks))
             conn.commit()
-            conn.close()
     except Exception as e:
-        print(f"Gagal mencatat log: {e}")
+        logger.error(f"Gagal mencatat log: {e}")
+    finally:
+        if conn:
+            conn.close()

@@ -48,7 +48,7 @@ class BarangMasukPage(QWidget):
             supliers = [r[0] for r in cursor.fetchall() if r[0].strip()]
             self.suplier_model.setStringList(supliers)
             conn.close()
-        except: pass
+        except Exception as e: print(f"Print Label Error: {e}")
 
     def init_ui(self):
         # Layout Utama
@@ -280,7 +280,7 @@ class BarangMasukPage(QWidget):
                     if col in [0, 5, 6, 7]: ti.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(i, col, ti)
             conn.close()
-        except: pass
+        except Exception as e: print(f"Load Riwayat Error: {e}")
 
     def cari_barang_manual(self):
         barcode = self.input_barcode.text().strip()
@@ -308,7 +308,7 @@ class BarangMasukPage(QWidget):
                     self.slot_combo.addItem(row["nama_slot"], {"id": row["id_barang"], "stok": row["stok"], "rak": row["rak"]})
                 return True
             self.show_notif("Gagal", "Barang tidak ditemukan!", is_error=True); return False
-        except: return False
+        except Exception as e: print(f"Generate Barcode Error: {e}"); return False
 
     def update_info_slot_pilihan(self):
         data = self.slot_combo.currentData()
@@ -383,7 +383,7 @@ class BarangMasukPage(QWidget):
             d.text((20, 150), f"SLOT  : {self.slot_combo.currentText()}", fill=(0,0,0))
             d.text((20, 180), f"TGL   : {w_obj.strftime('%d/%m/%Y %H:%M')}", fill=(0,0,0))
             img.save(os.path.join(folder, f"LABEL_{w_obj.strftime('%d%m%Y%H%M')}_{barcode}.png"))
-        except: pass
+        except Exception as e: print(f"Generate Label Error: {e}")
 
     def print_label_dari_tabel(self, item):
         row = item.row(); waktu_raw, barcode_id = self.table.item(row, 0).text(), self.table.item(row, 1).text()
@@ -399,4 +399,4 @@ class BarangMasukPage(QWidget):
                 if msg.exec() == QMessageBox.Yes:
                     if os.name == 'nt': os.startfile(path, "print")
                     else: subprocess.run(['lpr', path])
-        except: pass
+        except Exception as e: print(f"Print Label Error: {e}")

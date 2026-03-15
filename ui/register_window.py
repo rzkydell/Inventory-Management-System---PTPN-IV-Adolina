@@ -30,8 +30,8 @@ class RegisterWindow(QWidget):
 
     def get_asset_path(self, filename):
         """Helper untuk mengambil path file asset."""
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(base_path, "assets", "images", filename)
+        from utils.path_helper import get_resource_path
+        return get_resource_path(os.path.join("assets", "images", filename))
 
     def init_ui(self):
         """Inisialisasi antarmuka pengguna."""

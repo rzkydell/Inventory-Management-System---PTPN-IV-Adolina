@@ -70,15 +70,18 @@ class LaporanPage(QWidget):
         self.apply_shadow(top_bar_card)
         top_bar = QHBoxLayout(top_bar_card)
         top_bar.setContentsMargins(15, 12, 15, 12)
+        top_bar.setSpacing(8)
 
         self.input_cari = QLineEdit()
         self.input_cari.setPlaceholderText("🔍 Cari Nama/Kode...")
-        self.input_cari.setFixedWidth(180)
+        self.input_cari.setMinimumWidth(120)
+        self.input_cari.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.input_cari.textChanged.connect(self.filter_tabel_internal)
 
         self.filter_periode = QComboBox()
         self.filter_periode.addItems(["Hari Ini", "Minggu Ini", "Bulan Ini", "Tahun Ini", "Semua Waktu", "Custom Tanggal"])
-        self.filter_periode.setFixedWidth(120)
+        self.filter_periode.setMinimumWidth(120)
+        self.filter_periode.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.filter_periode.currentIndexChanged.connect(self.on_periode_changed)
         
         # Custom Date Pickers
@@ -99,7 +102,8 @@ class LaporanPage(QWidget):
 
         self.filter_jenis = QComboBox()
         self.filter_jenis.addItems(["Barang Masuk", "Barang Keluar", "Ringkasan Semua", "Analisis Pergerakan Barang"])
-        self.filter_jenis.setFixedWidth(200)
+        self.filter_jenis.setMinimumWidth(180)
+        self.filter_jenis.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.filter_jenis.currentIndexChanged.connect(self.load_laporan)
 
         # Action Buttons Styling (Dibuat Ramping)
@@ -438,7 +442,7 @@ class LaporanPage(QWidget):
                         if headers[col-1].lower() in ('qty masuk', 'qty keluar', 'sisa stok', 'masuk', 'keluar'):
                             try:
                                 cell.value = int(cell.value)
-                            except: pass
+                            except Exception as e: print(f"Remove Temp File Error: {e}")
 
             # 4. Auto-Fit Columns
             for col in range(1, col_count + 1):

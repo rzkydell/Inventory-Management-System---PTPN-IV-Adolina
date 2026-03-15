@@ -1,45 +1,89 @@
+import hashlib
+import os
 from database.connection import get_connection
 
 
+def _hash_password(password):
+    """Hash password menggunakan SHA-256 dengan salt acak."""
+    salt = os.urandom(16)
+    hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return salt.hex() + ':' + hashed.hex()
+
+
+def _verify_password(stored_hash, password):
+    """Verifikasi password terhadap hash yang tersimpan."""
+    try:
+        salt_hex, hash_hex = stored_hash.split(':')
+        salt = bytes.fromhex(salt_hex)
+        hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return hashed.hex() == hash_hex
+    except Exception:
+        return False
+
+
 def login_user(username, password):
-
+    """Verifikasi kredensial user dengan password hashing."""
     conn = get_connection()
-    cursor = conn.cursor()
+    if conn is None:
+        return None
 
-    cursor.execute(
-        "SELECT * FROM users WHERE username=? AND password=?",
-        (username, password)
-    )
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+        user = cursor.fetchone()
 
-    user = cursor.fetchone()
+        if user is None:
+            return None
 
-    conn.close()
+        stored_password = user['password']
 
-    return user
+        # Mendukung password lama (plaintext) DAN password baru (hashed)
+        if ':' in stored_password:
+            # Format baru: hash
+            if _verify_password(stored_password, password):
+                return user
+            return None
+        else:
+            # Format lama: plaintext — verifikasi lalu migrasi otomatis ke hash
+            if stored_password == password:
+                _migrate_password(conn, username, password)
+                return user
+            return None
+    except Exception as e:
+        print(f"LOGIN ERROR: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def _migrate_password(conn, username, password):
+    """Migrasi password plaintext ke hash secara otomatis saat login berhasil."""
+    try:
+        new_hash = _hash_password(password)
+        conn.execute("UPDATE users SET password=? WHERE username=?", (new_hash, username))
+        conn.commit()
+        print(f"Password untuk '{username}' berhasil dimigrasi ke hash.")
+    except Exception as e:
+        print(f"MIGRASI PASSWORD ERROR: {e}")
 
 
 def register_user(username, password):
-
+    """Daftarkan user baru dengan password yang sudah di-hash."""
     conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-
-        cursor.execute(
-            "INSERT INTO users (username,password) VALUES (?,?)",
-            (username, password)
-        )
-
-        conn.commit()
-
-        return True
-
-    except Exception as e:
-
-        print("REGISTER ERROR:", e)
-
+    if conn is None:
         return False
 
+    try:
+        hashed = _hash_password(password)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (username, password) VALUES (?, ?)",
+            (username, hashed)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"REGISTER ERROR: {e}")
+        return False
     finally:
-
         conn.close()

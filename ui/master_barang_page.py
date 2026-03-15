@@ -18,12 +18,7 @@ from PySide6.QtGui import QColor, QFont
 from database.connection import get_connection, catat_log
 from datetime import datetime
 
-def get_resource_path(relative_path):
-    if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
+from utils.path_helper import get_resource_path, get_root_dir
 
 class MasterBarangPage(QWidget):
     """
@@ -36,24 +31,17 @@ class MasterBarangPage(QWidget):
         self.id_barang_aktif = None 
         self.font_path = get_resource_path("assets/font/Apple.ttf")
         
-        if getattr(sys, 'frozen', False):
-            root_dir = os.path.dirname(sys.executable)
-        else:
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            
-        self.barcode_dir = os.path.join(root_dir, "barcode")
+        self.barcode_dir = os.path.join(get_root_dir(), "barcode")
         if not os.path.exists(self.barcode_dir):
             os.makedirs(self.barcode_dir)
 
         self.init_ui()
         self.load_kategori()
-        self.load_lokasi()
         self.load_barang()
 
     def showEvent(self, event):
         super().showEvent(event)
         self.load_kategori()
-        self.load_lokasi()
         self.search_barang.clear()
         self.filter_kategori.setCurrentIndex(0)
         self.clear_form()
@@ -298,7 +286,7 @@ class MasterBarangPage(QWidget):
             cursor.execute("""
                 SELECT b.*, k.nama_kategori, l.nama_lokasi FROM barang_baru b 
                 LEFT JOIN kategori k ON b.id_kategori = k.id_kategori 
-                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi ORDER BY b.id_barang ASC LIMIT 500
+                LEFT JOIN lokasi l ON b.id_lokasi = l.id_lokasi ORDER BY b.id_barang ASC
             """)
             rows = cursor.fetchall(); self.table.setRowCount(0)
             for i, row in enumerate(rows):
@@ -509,26 +497,17 @@ class MasterBarangPage(QWidget):
     def load_kategori(self):
         try:
             conn = get_connection(); cursor = conn.cursor(); cursor.execute("SELECT * FROM kategori")
-            self.kategori.clear(); self.filter_kategori.clear(); self.filter_kategori.addItem("Semua Kategori")
+            self.filter_kategori.clear(); self.filter_kategori.addItem("Semua Kategori")
             for r in cursor.fetchall(): 
-                self.kategori.addItem(r[1], r[0])
                 self.filter_kategori.addItem(r[1], r[0])
             conn.close()
-        except: pass
-
-    def load_lokasi(self):
-        try:
-            conn = get_connection(); cursor = conn.cursor(); cursor.execute("SELECT * FROM lokasi")
-            self.lokasi.clear()
-            for r in cursor.fetchall(): self.lokasi.addItem(r[1], r[0])
-            conn.close()
-        except: pass
+        except Exception as e: print(f"Load Kategori Error: {e}")
 
     def generate_barcode_id(self):
         try:
             conn = get_connection(); cursor = conn.cursor(); cursor.execute("SELECT MAX(id_barang) FROM barang_baru")
             res = cursor.fetchone()[0] or 0; conn.close(); return f"BRG{(res + 1):05d}"
-        except: return "BRG-ERR"
+        except Exception as e: print(f"Generate Barcode ID Error: {e}"); return "BRG-ERR"
 
     def isi_form_dari_tabel(self, item):
         row = item.row()
@@ -546,7 +525,7 @@ class MasterBarangPage(QWidget):
         path = os.path.join(self.barcode_dir, f"{clean}.png")
         if os.path.exists(path):
             try: os.remove(path)
-            except: pass
+            except Exception as e: print(f"Remove Barcode File Error: {e}")
 
     def generate_barcode_image(self, code, name):
         try:
@@ -556,7 +535,7 @@ class MasterBarangPage(QWidget):
             with open(f"{file_path}.png", "wb") as f:
                 Code128(str(code), writer=ImageWriter()).write(f, options=options)
             return True
-        except: return False
+        except Exception as e: print(f"Generate Barcode Error: {e}"); return False
 
     def print_barcode_terpilih(self):
         row = self.table.currentRow()

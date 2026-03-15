@@ -3,7 +3,7 @@ import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QFrame, QStackedWidget, QSpacerItem, 
-    QSizePolicy, QSystemTrayIcon, QMenu
+    QSizePolicy, QSystemTrayIcon, QMenu, QScrollArea
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QPixmap, QIcon, QFont, QAction
@@ -46,6 +46,7 @@ class DashboardWindow(QMainWindow):
         
         try:
             conn = get_connection()
+            if conn is None: return
             cursor = conn.cursor()
             cursor.execute("SELECT nama_barang, stok, stok_minimum FROM barang_baru WHERE stok <= stok_minimum")
             kritis = cursor.fetchall()
@@ -59,8 +60,8 @@ class DashboardWindow(QMainWindow):
                 msg.setIcon(QMessageBox.Warning)
                 msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: #b91c1c; font-size: 13px; font-weight: bold; } QPushButton { background-color: #ef4444; color: white; padding: 5px 20px; font-weight: bold; border-radius: 6px; }")
                 msg.exec()
-        except:
-            pass
+        except Exception as e:
+            print(f"Check Stok Kritis Error: {e}")
 
     def init_settings(self):
         """Konfigurasi jendela utama agar adaptif."""
@@ -82,11 +83,8 @@ class DashboardWindow(QMainWindow):
 
     def get_asset_path(self, filename):
         """Helper path asset yang aman untuk EXE."""
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-        else:
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(base_path, "assets", "images", filename)
+        from utils.path_helper import get_resource_path
+        return get_resource_path(os.path.join("assets", "images", filename))
 
     def init_ui(self):
         """Membangun struktur layout Utama yang fleksibel."""
@@ -112,9 +110,23 @@ class DashboardWindow(QMainWindow):
         self.sidebar.setObjectName("sidebar")
         self.sidebar.setFixedWidth(260)
         
-        sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar_scroll = QScrollArea(self.sidebar)
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { width: 0px; }")
+        
+        self.sidebar_content = QWidget()
+        self.sidebar_content.setObjectName("sidebarContent")
+        self.sidebar_content.setStyleSheet("background: transparent;")
+        
+        sidebar_layout = QVBoxLayout(self.sidebar_content)
         sidebar_layout.setContentsMargins(0, 30, 0, 20)
         sidebar_layout.setSpacing(5)
+
+        self.sidebar_scroll.setWidget(self.sidebar_content)
+
+        sidebar_wrapper = QVBoxLayout(self.sidebar)
+        sidebar_wrapper.setContentsMargins(0, 0, 0, 0)
+        sidebar_wrapper.addWidget(self.sidebar_scroll)
 
         # --- LOGO & UNIT NAME SECTION ---
         brand_container = QWidget()
@@ -155,10 +167,11 @@ class DashboardWindow(QMainWindow):
         # Sub Menu Container
         self.sub_menu_frame = QFrame()
         self.sub_menu_frame.setObjectName("subMenuFrame")
-        self.sub_menu_frame.setVisible(False) 
+        self.sub_menu_frame.setVisible(False)
+        self.sub_menu_frame.setFixedHeight(135) 
         sub_layout = QVBoxLayout(self.sub_menu_frame)
         sub_layout.setContentsMargins(0, 0, 0, 0)
-        sub_layout.setSpacing(2)
+        sub_layout.setSpacing(0)
         
         self.btn_barang = self.create_nav_btn("📦  Master Barang", 1, is_sub=True)
         self.btn_pendukung = self.create_nav_btn("⚙️  Master Pendukung", 2, is_sub=True)
@@ -227,7 +240,7 @@ class DashboardWindow(QMainWindow):
             btn.setObjectName("navLink")
 
         if index != -1:
-            btn.clicked.connect(lambda: self.switch_page(index))
+            btn.clicked.connect(lambda checked=False, idx=index: self.nav_button_clicked(idx))
         return btn
 
     def setup_content_area(self):
@@ -366,7 +379,22 @@ class DashboardWindow(QMainWindow):
         """
 
     def toggle_master_menu(self):
-        self.sub_menu_frame.setVisible(not self.sub_menu_frame.isVisible())
+        is_visible = self.sub_menu_frame.isVisible()
+        self.sub_menu_frame.setVisible(not is_visible)
+
+    def nav_button_clicked(self, index):
+        """Dipanggil HANYA saat tombol navigasi kiri diklik, untuk memastikan form bersih."""
+        if index == 8: # Barang Form
+            self.barang_form_page.clear_form()
+            self.barang_form_page.set_add_mode()
+        elif index == 3: # Barang Masuk
+            widget = self.pages.widget(3).findChild(QWidget, "contentArea") or self.pages.widget(3).layout().itemAt(1).widget()
+            if hasattr(widget, 'clear_form'): widget.clear_form()
+        elif index == 4: # Barang Keluar
+            widget = self.pages.widget(4).findChild(QWidget, "contentArea") or self.pages.widget(4).layout().itemAt(1).widget()
+            if hasattr(widget, 'clear_form'): widget.clear_form()
+        
+        self.switch_page(index)
 
     def switch_page(self, index):
         self.pages.setCurrentIndex(index)
@@ -375,12 +403,6 @@ class DashboardWindow(QMainWindow):
             btn.setProperty("active", is_active)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-        
-        if self.pages.currentWidget():
-            # idx = self.pages.currentIndex() # This line is redundant as 'index' is already the current index
-            if hasattr(self.pages.currentWidget(), 'children'):
-                # Beri tahu halaman untuk memuat ulang data jika ada
-                pass
 
     def logout(self):
         self._force_close = True
