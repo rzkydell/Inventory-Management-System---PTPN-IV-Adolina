@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from database.connection import get_connection, catat_log
 from datetime import datetime
+from utils.config_manager import get_ip_camera_url
 
 class AuditStokPage(QWidget):
     """
@@ -143,11 +144,22 @@ class AuditStokPage(QWidget):
         widget.setGraphicsEffect(shadow)
 
     def scan_kamera_audit(self):
-        cap = cv2.VideoCapture(0)
+        cam_url = get_ip_camera_url()
+        cam_source = cam_url if cam_url else 0
+        
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            QMessageBox.critical(self, "Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).")
+            return
+            
         barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
+            
+            # RESIZE FRAME (Konsistensi UX)
+            frame = cv2.resize(frame, (640, 480))
+            
             for obj in pyzbar.decode(frame):
                 barcode_data = obj.data.decode('utf-8'); break
             cv2.imshow("AUDIT SCANNER (ESC: Keluar)", frame)
@@ -214,14 +226,33 @@ class AuditStokPage(QWidget):
             self.table.setItem(i, 6, si)
 
     def reset_audit(self):
-        if QMessageBox.question(self, "Reset", "Hapus data audit saat ini?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Reset")
+        msg.setText("Hapus data audit saat ini?")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+        
+        if msg.exec() == QMessageBox.Yes:
             self.audit_data = {}
             self.refresh_table()
+            
+    def clear_form(self):
+        """Dibersihkan saat navigasi menu (Pesan User)."""
+        self.input_scan.clear()
+        self.audit_data = {}
+        self.refresh_table()
 
     def finalisasi_audit(self):
         if not self.audit_data: return
         count = len(self.audit_data)
-        if QMessageBox.question(self, "Konfirmasi", f"Update stok sistem untuk {count} barang ini sesuai hasil audit fisik?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Konfirmasi")
+        msg.setText(f"Update stok sistem untuk {count} barang ini sesuai hasil audit fisik?")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+        
+        if msg.exec() == QMessageBox.Yes:
             try:
                 conn = get_connection(); cursor = conn.cursor()
                 w_skrg = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -236,9 +267,15 @@ class AuditStokPage(QWidget):
                         """, (id_b, jenis, data['sistem'], data['fisik'], w_skrg, "PENYESUAIAN STOK OPNAME"))
                 conn.commit(); conn.close()
                 catat_log(f"Finalisasi Audit Stok: {count} item diproses.")
-                QMessageBox.information(self, "Selesai", "Stok sistem telah diperbarui sesuai data fisik.")
                 self.audit_data = {}
                 self.refresh_table()
+                
+                msg_s = QMessageBox(self)
+                msg_s.setWindowTitle("Selesai")
+                msg_s.setText("Stok sistem telah diperbarui sesuai data fisik.")
+                msg_s.setIcon(QMessageBox.Information)
+                msg_s.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+                msg_s.exec()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal update: {e}")
 
@@ -277,7 +314,20 @@ class AuditStokPage(QWidget):
             ]))
             elements.addWidget(t)
             doc.build(elements)
-            QMessageBox.information(self, "Berhasil", "Laporan audit berhasil diekspor.")
+            doc.build(elements)
+            
+            msg_e = QMessageBox(self)
+            msg_e.setWindowTitle("Berhasil")
+            msg_e.setText("Laporan audit berhasil diekspor.")
+            msg_e.setIcon(QMessageBox.Information)
+            msg_e.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+            msg_e.exec()
+            
             os.startfile(path)
         except Exception as e:
-            QMessageBox.critical(self, "Gagal", f"Error Export: {e}")
+            msg_err = QMessageBox(self)
+            msg_err.setWindowTitle("Gagal")
+            msg_err.setText(f"Error Export: {e}")
+            msg_err.setIcon(QMessageBox.Critical)
+            msg_err.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+            msg_err.exec()

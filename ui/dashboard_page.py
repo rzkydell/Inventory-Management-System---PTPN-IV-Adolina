@@ -72,6 +72,23 @@ class DashboardPage(QWidget):
         line_header.addWidget(lbl_trend)
         line_header.addStretch()
         
+        # Dropdown Timeframe
+        self.combo_timeframe = QComboBox()
+        self.combo_timeframe.addItems(["7 Hari Terakhir", "30 Hari Terakhir", "1 Tahun Terakhir"])
+        self.combo_timeframe.setStyleSheet("""
+            QComboBox { background-color: #f8fafc; color: #1e293b; font-weight: bold; font-size: 11px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #1e293b;
+                selection-background-color: #f1f5f9;
+                selection-color: #3b82f6;
+                outline: none;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+        line_header.addWidget(self.combo_timeframe)
+        
         # STYLING CHECKBOX AGAR TERLIHAT JELAS (HITAM)
         checkbox_style = """
             QCheckBox { 
@@ -219,6 +236,7 @@ class DashboardPage(QWidget):
         # Connect Events
         self.filter_line_in.stateChanged.connect(self.refresh_data)
         self.filter_line_out.stateChanged.connect(self.refresh_data)
+        self.combo_timeframe.currentIndexChanged.connect(self.refresh_data)
 
         self.scroll_root.setWidget(container)
         main_layout.addWidget(self.scroll_root)
@@ -302,13 +320,39 @@ class DashboardPage(QWidget):
             cursor.execute("SELECT COUNT(*) as t FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f'{h_ini}%',)); self.card_keluar.val_label.setText(str(cursor.fetchone()['t']))
             
             dates, data_in, data_out = [], [], []
-            for i in range(6, -1, -1):
-                t = (datetime.now() - timedelta(days=i))
-                dates.append(t.strftime('%d %b'))
-                cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
-                data_in.append(cursor.fetchone()['c'])
-                cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
-                data_out.append(cursor.fetchone()['c'])
+            timeframe_val = self.combo_timeframe.currentText()
+            
+            if timeframe_val == "1 Tahun Terakhir":
+                # Mengumpulkan data 12 bulan terakhir
+                for i in range(11, -1, -1):
+                    # Kita menghitung bulan mundur
+                    current_date = datetime.now()
+                    target_month = current_date.month - i
+                    target_year = current_date.year
+                    while target_month <= 0:
+                        target_month += 12
+                        target_year -= 1
+                        
+                    # Format: 2023-01
+                    period_str = f"{target_year}-{target_month:02d}"
+                    label_str = datetime(target_year, target_month, 1).strftime('%b %y')
+                    dates.append(label_str)
+                    
+                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f"{period_str}%",))
+                    data_in.append(cursor.fetchone()['c'])
+                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f"{period_str}%",))
+                    data_out.append(cursor.fetchone()['c'])
+            else:
+                # 7 Hari Terakhir atau 30 Hari Terakhir
+                days_count = 30 if timeframe_val == "30 Hari Terakhir" else 7
+                for i in range(days_count - 1, -1, -1):
+                    t = (datetime.now() - timedelta(days=i))
+                    dates.append(t.strftime('%d %b'))
+                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='MASUK' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
+                    data_in.append(cursor.fetchone()['c'])
+                    cursor.execute("SELECT COUNT(*) as c FROM transaksi WHERE jenis='KELUAR' AND tanggal LIKE ?", (f"{t.strftime('%Y-%m-%d')}%",))
+                    data_out.append(cursor.fetchone()['c'])
+                    
             self.update_charts(dates, data_in, data_out)
             conn.close()
             self.refresh_monitor_table()

@@ -384,15 +384,18 @@ class DashboardWindow(QMainWindow):
 
     def nav_button_clicked(self, index):
         """Dipanggil HANYA saat tombol navigasi kiri diklik, untuk memastikan form bersih."""
+        # Setiap perpindahan, kita bersihkan input lama (Pesan User)
+        if hasattr(self, 'barang_form_page'): self.barang_form_page.clear_form()
+        if hasattr(self, 'barang_masuk_page'): self.barang_masuk_page.clear_form()
+        if hasattr(self, 'barang_keluar_page'): self.barang_keluar_page.clear_form()
+        if hasattr(self, 'audit_stok_page'): self.audit_stok_page.clear_form()
+        if hasattr(self, 'master_barang_page'): 
+            if hasattr(self.master_barang_page, 'search_barang'):
+                self.master_barang_page.search_barang.clear()
+        
+        # Penanganan khusus mode tambah/edit
         if index == 8: # Barang Form
-            self.barang_form_page.clear_form()
             self.barang_form_page.set_add_mode()
-        elif index == 3: # Barang Masuk
-            widget = self.pages.widget(3).findChild(QWidget, "contentArea") or self.pages.widget(3).layout().itemAt(1).widget()
-            if hasattr(widget, 'clear_form'): widget.clear_form()
-        elif index == 4: # Barang Keluar
-            widget = self.pages.widget(4).findChild(QWidget, "contentArea") or self.pages.widget(4).layout().itemAt(1).widget()
-            if hasattr(widget, 'clear_form'): widget.clear_form()
         
         self.switch_page(index)
 
@@ -464,12 +467,13 @@ class DashboardWindow(QMainWindow):
         else:
             event.ignore()
             self.hide()
-            self.tray_icon.showMessage(
-                "Info Sistem",
-                "Aplikasi tetap berjalan di System Tray untuk memantau stok.",
-                QSystemTrayIcon.Information,
-                3000
-            )
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.showMessage(
+                    "Info Sistem",
+                    "Aplikasi tetap berjalan di System Tray untuk memantau stok.",
+                    QSystemTrayIcon.Information,
+                    3000
+                )
 
     def send_tray_notification(self, title, message, icon=QSystemTrayIcon.Warning):
         """Helper untuk mengirim notifikasi balon Windows."""

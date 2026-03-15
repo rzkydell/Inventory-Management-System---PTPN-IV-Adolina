@@ -1,13 +1,16 @@
 import os
 import sys
 import shutil
+import cv2
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFrame, QFileDialog, QMessageBox, QScrollArea
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+
+from utils.config_manager import get_ip_camera_url, set_ip_camera_url
 
 class PengaturanPage(QWidget):
     """
@@ -105,6 +108,62 @@ class PengaturanPage(QWidget):
         db_layout.addWidget(btn_restore)
 
         layout.addWidget(db_card)
+
+        # --- SECTION 3: SCANNER CONFIGURATION ---
+        cam_card = QFrame()
+        cam_card.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        self.apply_shadow(cam_card)
+        cam_layout = QVBoxLayout(cam_card)
+        cam_layout.setContentsMargins(20, 20, 20, 20)
+        cam_layout.setSpacing(10)
+
+        cam_title = QLabel("📷 KONFIGURASI SCANNER (KAMERA IP)")
+        cam_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #1e293b;")
+        cam_desc = QLabel("Gunakan kamera Smartphone Anda sebagai Barcode Scanner nirkabel. \n\n⚠️ PENTING: Gunakan format http://IP:PORT/video (Misal: http://192.168.1.50:8080/video). Pastikan menggunakan Titik Dua (:) sebelum Port, bukan titik (.).")
+        cam_desc.setWordWrap(True)
+        cam_desc.setStyleSheet("color: #64748b; margin-bottom: 10px;")
+
+        cam_layout.addWidget(cam_title)
+        cam_layout.addWidget(cam_desc)
+
+        # Input Row
+        input_row = QHBoxLayout()
+        input_row.setSpacing(10)
+
+        self.input_url = QLineEdit()
+        self.input_url.setPlaceholderText("http://[IP-Subnet-Anda]:[Port]/video")
+        self.input_url.setStyleSheet("""
+            QLineEdit { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 13px; color: #000000; font-weight: bold; }
+            QLineEdit:focus { border: 2px solid #3b82f6; background-color: #ffffff; }
+        """)
+        # Load existing config
+        self.input_url.setText(get_ip_camera_url())
+
+        self.btn_save_cam = QPushButton("Simpan URL")
+        self.btn_save_cam.setCursor(Qt.PointingHandCursor)
+        self.btn_save_cam.setFixedHeight(42)
+        self.btn_save_cam.setStyleSheet("""
+            QPushButton { background-color: #3b82f6; color: white; font-weight: bold; font-size: 13px; border-radius: 8px; padding-left: 15px; padding-right: 15px; }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        self.btn_save_cam.clicked.connect(self.save_camera_config)
+
+        self.btn_test_cam = QPushButton("🔍 Cek Koneksi")
+        self.btn_test_cam.setCursor(Qt.PointingHandCursor)
+        self.btn_test_cam.setFixedHeight(42)
+        self.btn_test_cam.setStyleSheet("""
+            QPushButton { background-color: #1e293b; color: white; font-weight: bold; font-size: 13px; border-radius: 8px; padding-left: 15px; padding-right: 15px; }
+            QPushButton:hover { background-color: #334155; }
+        """)
+        self.btn_test_cam.clicked.connect(self.test_camera_connection)
+
+        input_row.addWidget(self.input_url, 1)
+        input_row.addWidget(self.btn_test_cam)
+        input_row.addWidget(self.btn_save_cam)
+
+        cam_layout.addLayout(input_row)
+        layout.addWidget(cam_card)
+
         layout.addStretch()
 
         scroll.setWidget(container)
@@ -161,3 +220,38 @@ class PengaturanPage(QWidget):
                     self.show_notif("Restore Selesai", "Database berhasil dipulihkan!\nSilakan Muat Ulang atau Res-Start Aplikasinya jika ada data yang tidak sinkron.", is_info=True)
                 except Exception as e:
                     self.show_notif("Gagal", f"Gagal memulihkan database: {e}", is_error=True)
+
+    def save_camera_config(self):
+        url = self.input_url.text().strip()
+        if set_ip_camera_url(url):
+            self.show_notif("Berhasil", "Konfigurasi Kamera Scanner berhasil disimpan!", is_info=True)
+            self.input_url.clearFocus()
+        else:
+            self.show_notif("Gagal", "Terjadi kesalahan saat menyimpan pengaturan kamera.", is_error=True)
+
+    def test_camera_connection(self):
+        url = self.input_url.text().strip()
+        if not url:
+            self.show_notif("Info", "Masukkan URL Kamera IP terlebih dahulu untuk mengetes.", is_info=True)
+            return
+            
+        self.btn_test_cam.setText("🔄 Menghubungkan...")
+        self.btn_test_cam.setEnabled(False)
+        self.repaint() # Force UI update
+        
+        try:
+            cap = cv2.VideoCapture(url)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    self.show_notif("Koneksi Sukses!", "Kamera terdeteksi dan gambar berhasil dimuat. Bapak bisa menggunakan scanner HP sekarang.", is_info=True)
+                else:
+                    self.show_notif("Gagal Membaca Gambar", "Koneksi ke server IP Webcam berhasil, namun gagal mengambil gambar. Pastikan server IP Webcam di HP sudah di-START.", is_error=True)
+                cap.release()
+            else:
+                self.show_notif("Koneksi Gagal", "Gagal menghubungi IP Camera. \n\nTips:\n1. Pastikan IP dan Port sudah benar (misal: :8080 bukan .8080)\n2. Pastikan HP dan Laptop di Wi-Fi yang sama.\n3. Tambahkan /video di akhir URL.", is_error=True)
+        except Exception as e:
+            self.show_notif("Error", f"Terjadi kesalahan teknis: {str(e)}", is_error=True)
+        finally:
+            self.btn_test_cam.setText("🔍 Cek Koneksi")
+            self.btn_test_cam.setEnabled(True)

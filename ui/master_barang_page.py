@@ -19,6 +19,7 @@ from database.connection import get_connection, catat_log
 from datetime import datetime
 
 from utils.path_helper import get_resource_path, get_root_dir
+from utils.config_manager import get_ip_camera_url
 
 class MasterBarangPage(QWidget):
     """
@@ -251,34 +252,53 @@ class MasterBarangPage(QWidget):
 
     def apply_shadow(self, widget):
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
-        from PySide6.QtGui import QColor
         shadow = QGraphicsDropShadowEffect(widget)
         shadow.setBlurRadius(20); shadow.setXOffset(0); shadow.setYOffset(4); shadow.setColor(QColor(0, 0, 0, 20))
         widget.setGraphicsEffect(shadow)
 
-    def show_notif(self, title, text, is_error=False):
+    def show_notif(self, title, message, is_error=False):
         msg = QMessageBox(self)
         msg.setWindowTitle(title)
-        msg.setText(text)
+        msg.setText(message)
         msg.setIcon(QMessageBox.Critical if is_error else QMessageBox.Information)
-        msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
+        msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: black; font-size: 13px; font-weight: 500; } QPushButton { color: black; font-weight: bold; min-width: 70px; }")
         msg.exec()
 
     def scan_kamera(self, target="search"):
-        cap = cv2.VideoCapture(0)
+        cam_url = get_ip_camera_url()
+        cam_source = cam_url if cam_url else 0
+        
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            return
+            
         barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
+            
+            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
+            frame = cv2.resize(frame, (640, 480))
+            
             for obj in pyzbar.decode(frame):
-                barcode_data = obj.data.decode('utf-8'); break
+                barcode_data = obj.data.decode('utf-8')
+                break
+                
             cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
-            if barcode_data or cv2.waitKey(1) & 0xFF == 27: break
-        cap.release(); cv2.destroyAllWindows()
+            
+            if barcode_data or cv2.waitKey(1) & 0xFF == 27:
+                break
+                
+        cap.release()
+        cv2.destroyAllWindows()
+        
         if barcode_data:
             winsound.Beep(1000, 200)
-            if target == "search": self.search_barang.setText(barcode_data)
-            else: self.barcode_manual.setText(barcode_data)
+            if target == "search":
+                self.search_barang.setText(barcode_data)
+                self.filter_barang()
+            self.show_notif("Berhasil", f"Barcode terdeteksi: {barcode_data}")
 
     def load_barang(self):
         try:

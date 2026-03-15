@@ -1,20 +1,22 @@
 import os
-import sqlite3
-import cv2
-import winsound
 import sys
-import subprocess
+import cv2
+import sqlite3
 from pyzbar import pyzbar
+import winsound
+from datetime import datetime
+from PIL import Image, ImageDraw, ImageFont
+
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QTableWidget,
-    QTableWidgetItem, QMessageBox, QHeaderView,
-    QAbstractItemView, QFrame, QScrollArea, QGridLayout, QComboBox, QSizePolicy, QCompleter
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QFrame, QMessageBox, QTableWidget, QScrollArea,
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout, QComboBox, QCompleter
 )
 from PySide6.QtCore import Qt, QSettings, QStringListModel
+from PySide6.QtGui import QColor
+
 from database.connection import get_connection, catat_log
-from datetime import datetime
-from PIL import Image, ImageDraw
+from utils.config_manager import get_ip_camera_url
 
 def get_app_path():
     if getattr(sys, 'frozen', False):
@@ -308,7 +310,9 @@ class BarangMasukPage(QWidget):
                     self.slot_combo.addItem(row["nama_slot"], {"id": row["id_barang"], "stok": row["stok"], "rak": row["rak"]})
                 return True
             self.show_notif("Gagal", "Barang tidak ditemukan!", is_error=True); return False
-        except Exception as e: print(f"Generate Barcode Error: {e}"); return False
+        except Exception as e:
+            self.show_notif("Error", f"Terjadi kesalahan saat mencari data: {e}", is_error=True)
+            return False
 
     def update_info_slot_pilihan(self):
         data = self.slot_combo.currentData()
@@ -318,21 +322,48 @@ class BarangMasukPage(QWidget):
             self.stok_display.setText(str(data["stok"]))
 
     def scan_via_kamera(self):
-        cap = cv2.VideoCapture(0)
+        cam_url = get_ip_camera_url()
+        cam_source = cam_url if cam_url else 0
+        
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            return
+
         while True:
             ret, frame = cap.read()
             if not ret: break
+            
+            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
+            frame = cv2.resize(frame, (640, 480))
+            
             barcode_val = None
-            for obj in pyzbar.decode(frame): barcode_val = obj.data.decode('utf-8'); break
+            for obj in pyzbar.decode(frame): 
+                barcode_val = obj.data.decode('utf-8')
+                break
+                
             cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
+            
             if barcode_val:
-                winsound.Beep(1000, 150); self.metode_input = "SCAN"
-                if self.input_barcode.text() == barcode_val:
-                    self.jumlah.setText(str(int(self.jumlah.text() or 0) + 1))
+                winsound.Beep(1000, 150)
+                self.metode_input = "SCAN"
+                
+                # AUTO SINKRON & AKUMULASI KOMULATIF
+                if self.input_barcode.text() == barcode_val and self.id_barang_aktif:
+                    # Jika barang sama, tambah +1
+                    try:
+                        current_qty = int(self.jumlah.text() or 0)
+                        self.jumlah.setText(str(current_qty + 1))
+                    except: self.jumlah.setText("1")
                 else:
+                    # Jika barang baru/berbeda, set ke 1 dan load data
                     self.input_barcode.setText(barcode_val)
-                    if self.cari_barang_logic(barcode_val): self.jumlah.setText("1")
-                cv2.waitKey(1000) 
+                    if self.cari_barang_logic(barcode_val):
+                        self.jumlah.setText("1")
+                
+                # Close automatically after detection (User Request)
+                break
+                
             if cv2.waitKey(1) & 0xFF == 27: break 
         cap.release(); cv2.destroyAllWindows()
 

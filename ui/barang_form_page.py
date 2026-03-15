@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from database.connection import get_connection, catat_log
 from datetime import datetime
+from utils.config_manager import get_ip_camera_url
 
 class BarangFormPage(QWidget):
     """
@@ -247,11 +248,21 @@ class BarangFormPage(QWidget):
         self.id_barang_aktif = None
 
     def scan_barcode(self):
-        cap = cv2.VideoCapture(0)
+        cam_url = get_ip_camera_url()
+        cam_source = cam_url if cam_url else 0
+        
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            return
         barcode_data = None
         while True:
             ret, frame = cap.read()
             if not ret: break
+            
+            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
+            frame = cv2.resize(frame, (640, 480))
+            
             for obj in pyzbar.decode(frame):
                 barcode_data = obj.data.decode('utf-8'); break
             cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)

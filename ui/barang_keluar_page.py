@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSettings, QStringListModel
 from database.connection import get_connection, catat_log
 from datetime import datetime
+from utils.config_manager import get_ip_camera_url
 
 class BarangKeluarPage(QWidget):
     """
@@ -286,7 +287,9 @@ class BarangKeluarPage(QWidget):
                 self.stok_display.setText(str(self.total_stok_tersedia))
                 conn.close(); return True
             conn.close(); return False
-        except Exception as e: print(f"Generate Barcode Error: {e}"); return False
+        except Exception as e:
+            self.show_notif("Error", f"Terjadi kesalahan saat mencari data FIFO: {e}", is_error=True)
+            return False
 
     def validasi_input_manual(self, text):
         if not self.total_stok_tersedia or not text.isdigit(): return
@@ -422,26 +425,50 @@ class BarangKeluarPage(QWidget):
             self.show_notif("Gagal PDF", str(e), is_error=True)
 
     def scan_via_kamera(self):
-        cap = cv2.VideoCapture(0)
+        cam_url = get_ip_camera_url()
+        cam_source = cam_url if cam_url else 0
+        
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            self.show_notif("Gagal", f"Tidak dapat membuka kamera ({'IP Webcam' if cam_url else 'Webcam'}).", is_error=True)
+            return
+
         while True:
             ret, frame = cap.read()
             if not ret: break
+            
+            # RESIZE FRAME (UX Improvement: Jendela tidak memenuhi layar)
+            frame = cv2.resize(frame, (640, 480))
+            
             bv = None
-            for obj in pyzbar.decode(frame): bv = obj.data.decode('utf-8'); break
+            for obj in pyzbar.decode(frame): 
+                bv = obj.data.decode('utf-8')
+                break
+                
             cv2.imshow("PTPN IV SCANNER (ESC: Keluar)", frame)
+            
             if bv:
-                winsound.Beep(1000, 150); self.metode_input = "SCAN"
-                if self.input_barcode.text() == bv:
+                winsound.Beep(1000, 150)
+                self.metode_input = "SCAN"
+                
+                # AUTO SINKRON & AKUMULASI KOMULATIF
+                if self.input_barcode.text() == bv and self.batch_pemandu:
+                    # Jika barang sama, tambah +1 (cek stok tersedia)
                     current_qty = int(self.jumlah.text() or 0)
                     if current_qty + 1 > self.total_stok_tersedia:
-                        winsound.Beep(500, 1000)
+                        winsound.Beep(500, 500)
                         self.show_notif("Peringatan Stok", f"Jumlah sudah maksimal ({self.total_stok_tersedia} tersedia).", is_error=True)
                     else:
                         self.jumlah.setText(str(current_qty + 1))
                 else:
+                    # Jika barang baru/berbeda, set ke 1 dan load data
                     self.input_barcode.setText(bv)
-                    if self.cari_fifo_logic(bv): self.jumlah.setText("1")
-                cv2.waitKey(1000) 
+                    if self.cari_fifo_logic(bv):
+                        self.jumlah.setText("1")
+                
+                # Close automatically after detection (User Request)
+                break
+                
             if cv2.waitKey(1) & 0xFF == 27: break 
         cap.release(); cv2.destroyAllWindows()
 
