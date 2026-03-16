@@ -37,9 +37,10 @@ database/backups/
 barcode/
 label_masuk/
 label_barcode/
-DO/
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Generated Documents
+DO/
