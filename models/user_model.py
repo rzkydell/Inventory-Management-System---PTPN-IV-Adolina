@@ -22,7 +22,7 @@ def _verify_password(stored_hash, password):
 
 
 def login_user(username, password):
-    """Verifikasi kredensial user dengan password hashing."""
+    """Verifikasi kredensial user dengan password hashing. Mengembalikan dict dengan role."""
     conn = get_connection()
     if conn is None:
         return None
@@ -41,13 +41,16 @@ def login_user(username, password):
         if ':' in stored_password:
             # Format baru: hash
             if _verify_password(stored_password, password):
-                return user
+                return dict(user)
             return None
         else:
             # Format lama: plaintext — verifikasi lalu migrasi otomatis ke hash
             if stored_password == password:
                 _migrate_password(conn, username, password)
-                return user
+                # Re-fetch user setelah migrasi untuk mendapatkan data terbaru
+                cursor.execute("SELECT * FROM users WHERE username=?", (username,))
+                updated_user = cursor.fetchone()
+                return dict(updated_user) if updated_user else dict(user)
             return None
     except Exception as e:
         print(f"LOGIN ERROR: {e}")
@@ -68,7 +71,7 @@ def _migrate_password(conn, username, password):
 
 
 def register_user(username, password):
-    """Daftarkan user baru dengan password yang sudah di-hash."""
+    """Daftarkan user baru dengan role 'user' (bukan super_admin)."""
     conn = get_connection()
     if conn is None:
         return False
@@ -77,8 +80,8 @@ def register_user(username, password):
         hashed = _hash_password(password)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)",
-            (username, hashed)
+            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+            (username, hashed, 'user')
         )
         conn.commit()
         return True

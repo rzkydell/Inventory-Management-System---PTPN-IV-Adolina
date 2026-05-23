@@ -41,6 +41,16 @@ def get_connection():
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Kolom sudah ada
+
+        # Migrasi: Tambah kolom role pada tabel users jika belum ada
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            conn.commit()
+            # Setelah kolom berhasil ditambahkan, set user pertama sebagai super_admin
+            conn.execute("UPDATE users SET role='super_admin' WHERE id_user = (SELECT MIN(id_user) FROM users)")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Kolom sudah ada
         
         return conn
 
@@ -60,14 +70,14 @@ def safe_connection():
             conn.close()
 
 
-def catat_log(aktivitas_teks):
+def catat_log(aktivitas_teks, user="Admin"):
     """Fungsi helper untuk mencatat riwayat aktivitas pengguna/Sistem."""
     conn = None
     try:
         conn = get_connection()
         if conn:
             waktu_skrg = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute("INSERT INTO log_aktivitas (waktu, aktivitas) VALUES (?, ?)", (waktu_skrg, aktivitas_teks))
+            conn.execute("INSERT INTO log_aktivitas (waktu, user, aktivitas) VALUES (?, ?, ?)", (waktu_skrg, user, aktivitas_teks))
             conn.commit()
     except Exception as e:
         logger.error(f"Gagal mencatat log: {e}")

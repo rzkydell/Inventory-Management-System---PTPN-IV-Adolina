@@ -222,7 +222,7 @@ class LoginWindow(QWidget):
 
         if user:
             sync_barcodes()
-            self.dashboard = DashboardWindow()
+            self.dashboard = DashboardWindow(user_data=user)
             self.dashboard.show()
             self.close()
         else:

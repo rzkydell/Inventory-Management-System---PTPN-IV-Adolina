@@ -44,3 +44,8 @@ Thumbs.db
 
 # Generated Documents
 DO/
+
+# PyInstaller Build
+build/
+dist/
+*.spec

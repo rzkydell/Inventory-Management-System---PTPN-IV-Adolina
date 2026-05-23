@@ -25,13 +25,20 @@ from PySide6.QtWidgets import QMessageBox
 class DashboardWindow(QMainWindow):
     """
     Jendela Utama Aplikasi (Main Shell).
-    Didesain responsif untuk berbagai resolusi layar laptop.
+    Mendukung role-based access: super_admin (full CRUD) dan user (monitoring only).
     """
 
-    def __init__(self):
+    def __init__(self, user_data=None):
         super().__init__()
         self.already_warned = False
         self._force_close = False
+        
+        # Data pengguna yang login (dict: id_user, username, password, role)
+        self.user_data = user_data or {}
+        self.user_role = self.user_data.get('role', 'user')
+        self.user_name = self.user_data.get('username', 'User')
+        self.is_super_admin = (self.user_role == 'super_admin')
+        
         self.init_settings()
         self.init_ui()
         self.setup_tray()
@@ -53,10 +60,11 @@ class DashboardWindow(QMainWindow):
             conn.close()
             
             if kritis:
+                role_label = "Admin" if self.is_super_admin else "Operator"
                 teks_kritis = "\n".join([f"- {r[0]} (Sisa: {r[1]}, Min: {r[2]})" for r in kritis])
                 msg = QMessageBox(self)
                 msg.setWindowTitle("⚠️ PERINGATAN DARURAT STOK GUDANG")
-                msg.setText(f"Halo Admin, terdapat {len(kritis)} barang yang akan atau sudah habis! Harap segera hubungi Suplier untuk pengadaan (restock):\n\n{teks_kritis}")
+                msg.setText(f"Halo {role_label} ({self.user_name}), terdapat {len(kritis)} barang yang akan atau sudah habis! Harap segera hubungi Suplier untuk pengadaan (restock):\n\n{teks_kritis}")
                 msg.setIcon(QMessageBox.Warning)
                 msg.setStyleSheet("QMessageBox { background-color: white; } QLabel { color: #b91c1c; font-size: 13px; font-weight: bold; } QPushButton { background-color: #ef4444; color: white; padding: 5px 20px; font-weight: bold; border-radius: 6px; }")
                 msg.exec()
@@ -105,7 +113,7 @@ class DashboardWindow(QMainWindow):
         self.switch_page(0)
 
     def setup_sidebar(self):
-        """Konfigurasi Sidebar Navigasi dengan identitas unit."""
+        """Konfigurasi Sidebar Navigasi dengan identitas unit dan role badge."""
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
         self.sidebar.setFixedWidth(260)
@@ -156,12 +164,58 @@ class DashboardWindow(QMainWindow):
 
         brand_layout.addWidget(self.brand_logo)
         brand_layout.addWidget(self.unit_name)
+        
+        # --- USER INFO & ROLE BADGE ---
+        user_info_container = QWidget()
+        user_info_layout = QVBoxLayout(user_info_container)
+        user_info_layout.setSpacing(4)
+        user_info_layout.setContentsMargins(20, 10, 20, 0)
+        
+        # Username Label
+        user_label = QLabel(f"👤  {self.user_name}")
+        user_label.setAlignment(Qt.AlignCenter)
+        user_label.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 600;")
+        
+        # Role Badge
+        if self.is_super_admin:
+            role_text = "🛡️ SUPER ADMIN"
+            role_style = """
+                color: #ffffff;
+                background-color: #059669;
+                border-radius: 10px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.5px;
+            """
+        else:
+            role_text = "👁️ MONITORING"
+            role_style = """
+                color: #ffffff;
+                background-color: #6366f1;
+                border-radius: 10px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.5px;
+            """
+        
+        role_badge = QLabel(role_text)
+        role_badge.setAlignment(Qt.AlignCenter)
+        role_badge.setStyleSheet(role_style)
+        
+        user_info_layout.addWidget(user_label)
+        user_info_layout.addWidget(role_badge)
+        
+        brand_layout.addWidget(user_info_container)
         sidebar_layout.addWidget(brand_container)
         
-        sidebar_layout.addSpacing(30)
+        sidebar_layout.addSpacing(25)
 
-        # Menu Buttons
+        # Menu Buttons — Dashboard selalu tersedia
         self.btn_dashboard = self.create_nav_btn("  🏠  Dashboard", 0)
+        
+        # Menu items yang hanya untuk Super Admin
         self.btn_master_parent = self.create_nav_btn("  📂  Master Data", -1, is_parent=True)
         
         # Sub Menu Container
@@ -189,15 +243,22 @@ class DashboardWindow(QMainWindow):
         self.btn_pengaturan = self.create_nav_btn("  🛡️  Pengaturan Sistem", 6)
 
         # Tambahkan ke Sidebar
-        sidebar_layout.addWidget(self.btn_dashboard)
-        sidebar_layout.addWidget(self.btn_master_parent)
-        sidebar_layout.addWidget(self.sub_menu_frame)
-        sidebar_layout.addWidget(self.btn_masuk)
-        sidebar_layout.addWidget(self.btn_keluar)
-        sidebar_layout.addWidget(self.btn_audit)
-        sidebar_layout.addWidget(self.btn_laporan)
-        sidebar_layout.addWidget(self.btn_log)
-        sidebar_layout.addWidget(self.btn_pengaturan)
+        sidebar_layout.addWidget(self.btn_dashboard)  # Selalu tampil
+        
+        if self.is_super_admin:
+            # Super Admin mendapat akses penuh ke semua menu
+            sidebar_layout.addWidget(self.btn_master_parent)
+            sidebar_layout.addWidget(self.sub_menu_frame)
+            sidebar_layout.addWidget(self.btn_masuk)
+            sidebar_layout.addWidget(self.btn_keluar)
+            sidebar_layout.addWidget(self.btn_audit)
+            sidebar_layout.addWidget(self.btn_laporan)
+            sidebar_layout.addWidget(self.btn_log)
+            sidebar_layout.addWidget(self.btn_pengaturan)
+        else:
+            # User biasa: hanya bisa melihat Laporan dan Log (read-only)
+            sidebar_layout.addWidget(self.btn_laporan)
+            sidebar_layout.addWidget(self.btn_log)
         
         sidebar_layout.addStretch()
 
@@ -211,19 +272,26 @@ class DashboardWindow(QMainWindow):
 
         self.main_layout.addWidget(self.sidebar)
 
-        # Mapping Navigasi
-        self.nav_buttons = {
-            0: self.btn_dashboard,
-            1: self.btn_barang,
-            2: self.btn_pendukung,
-            8: self.btn_barang_form,
-            3: self.btn_masuk,
-            4: self.btn_keluar,
-            9: self.btn_audit,
-            5: self.btn_laporan,
-            7: self.btn_log,
-            6: self.btn_pengaturan
-        }
+        # Mapping Navigasi — hanya daftarkan tombol yang aktif
+        self.nav_buttons = {0: self.btn_dashboard}
+        
+        if self.is_super_admin:
+            self.nav_buttons.update({
+                1: self.btn_barang,
+                2: self.btn_pendukung,
+                8: self.btn_barang_form,
+                3: self.btn_masuk,
+                4: self.btn_keluar,
+                9: self.btn_audit,
+                5: self.btn_laporan,
+                7: self.btn_log,
+                6: self.btn_pengaturan
+            })
+        else:
+            self.nav_buttons.update({
+                5: self.btn_laporan,
+                7: self.btn_log,
+            })
 
     def create_nav_btn(self, text, index, is_parent=False, is_sub=False):
         btn = QPushButton(text)
@@ -259,33 +327,44 @@ class DashboardWindow(QMainWindow):
         self.pages = QStackedWidget()
         content_layout.addWidget(self.pages)
         
-        # Bungkus setiap halaman agar memiliki header dan padding yang konsisten
+        # Index 0: Dashboard (selalu tersedia)
         self.pages.addWidget(self.create_page_wrapper(DashboardPage(), "Dashboard Overview", "Statistik aktivitas inventaris real-time."))
         
-        # Pages with Signals
-        self.master_barang_page = MasterBarangPage()
-        self.barang_form_page = BarangFormPage()
-        self.audit_stok_page = AuditStokPage()
-        
-        # Connections
-        self.master_barang_page.add_requested.connect(self.go_to_add_barang)
-        self.master_barang_page.edit_requested.connect(self.go_to_edit_barang)
-        self.barang_form_page.back_requested.connect(lambda: self.switch_page(1))
-        self.barang_form_page.barang_saved.connect(self.master_barang_page.load_barang)
+        if self.is_super_admin:
+            # Index 1-9: Halaman CRUD (hanya untuk Super Admin)
+            self.master_barang_page = MasterBarangPage()
+            self.barang_form_page = BarangFormPage()
+            self.audit_stok_page = AuditStokPage()
+            
+            # Connections
+            self.master_barang_page.add_requested.connect(self.go_to_add_barang)
+            self.master_barang_page.edit_requested.connect(self.go_to_edit_barang)
+            self.barang_form_page.back_requested.connect(lambda: self.switch_page(1))
+            self.barang_form_page.barang_saved.connect(self.master_barang_page.load_barang)
 
-        self.pages.addWidget(self.create_page_wrapper(self.master_barang_page, "Database Barang", "Kelola seluruh item dan stok inventaris."))
-        self.pages.addWidget(self.create_page_wrapper(MasterPendukungPage(), "Konfigurasi Pendukung", "Pengaturan Kategori dan Lokasi Penyimpanan."))
-        self.pages.addWidget(self.create_page_wrapper(BarangMasukPage(), "Transaksi Masuk", "Catat pengadaan barang baru ke dalam sistem."))
-        self.pages.addWidget(self.create_page_wrapper(BarangKeluarPage(), "Transaksi Keluar", "Catat distribusi dan pengeluaran barang."))
-        self.pages.addWidget(self.create_page_wrapper(LaporanPage(), "Laporan Aktivitas", "Analisa data pergerakan barang berdasarkan periode."))
-        self.pages.addWidget(self.create_page_wrapper(PengaturanPage(), "Keamanan & Pengaturan", "Sistem Kelola Database Backup dan Restore Sistem."))
-        self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))
-        
-        # New Pages Slots
-        self.pages.addWidget(self.create_page_wrapper(self.barang_form_page, "Formulir Barang", "Kelola informasi detail spesifik barang.")) # Index 8
-        self.pages.addWidget(self.create_page_wrapper(self.audit_stok_page, "Audit Stok Opname", "Verifikasi fisik barang secara periodik.")) # Index 9
+            self.pages.addWidget(self.create_page_wrapper(self.master_barang_page, "Database Barang", "Kelola seluruh item dan stok inventaris."))  # 1
+            self.pages.addWidget(self.create_page_wrapper(MasterPendukungPage(), "Konfigurasi Pendukung", "Pengaturan Kategori dan Lokasi Penyimpanan."))  # 2
+            self.pages.addWidget(self.create_page_wrapper(BarangMasukPage(), "Transaksi Masuk", "Catat pengadaan barang baru ke dalam sistem."))  # 3
+            self.pages.addWidget(self.create_page_wrapper(BarangKeluarPage(), "Transaksi Keluar", "Catat distribusi dan pengeluaran barang."))  # 4
+            self.pages.addWidget(self.create_page_wrapper(LaporanPage(), "Laporan Aktivitas", "Analisa data pergerakan barang berdasarkan periode."))  # 5
+            self.pages.addWidget(self.create_page_wrapper(PengaturanPage(), "Keamanan & Pengaturan", "Sistem Kelola Database Backup dan Restore Sistem."))  # 6
+            self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))  # 7
+            self.pages.addWidget(self.create_page_wrapper(self.barang_form_page, "Formulir Barang", "Kelola informasi detail spesifik barang."))  # 8
+            self.pages.addWidget(self.create_page_wrapper(self.audit_stok_page, "Audit Stok Opname", "Verifikasi fisik barang secara periodik."))  # 9
+        else:
+            # User biasa: hanya Dashboard + Laporan (read-only) + Log (read-only)
+            # Index mapping tetap konsisten: 5 = Laporan, 7 = Log
+            # Untuk user biasa, kita taruh di index yang berbeda tapi mapping dilakukan via page_index_map
+            self.pages.addWidget(self.create_page_wrapper(LaporanPage(), "Laporan Aktivitas", "Analisa data pergerakan barang berdasarkan periode."))  # 1 (mapped from 5)
+            self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))  # 2 (mapped from 7)
 
         self.main_layout.addWidget(content_area)
+        
+        # Page Index Mapping — menerjemahkan nav index ke actual stacked widget index
+        if self.is_super_admin:
+            self._page_index_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9}
+        else:
+            self._page_index_map = {0: 0, 5: 1, 7: 2}
 
     def create_page_wrapper(self, content_widget, title, subtitle):
         """Standardisasi tampilan header setiap halaman."""
@@ -312,10 +391,14 @@ class DashboardWindow(QMainWindow):
         return wrapper
 
     def go_to_add_barang(self):
+        if not self.is_super_admin:
+            return
         self.barang_form_page.set_add_mode()
         self.switch_page(8)
 
     def go_to_edit_barang(self, id_b, data):
+        if not self.is_super_admin:
+            return
         self.barang_form_page.set_edit_mode(id_b, data)
         self.switch_page(8)
 
@@ -384,23 +467,31 @@ class DashboardWindow(QMainWindow):
 
     def nav_button_clicked(self, index):
         """Dipanggil HANYA saat tombol navigasi kiri diklik, untuk memastikan form bersih."""
-        # Setiap perpindahan, kita bersihkan input lama (Pesan User)
-        if hasattr(self, 'barang_form_page'): self.barang_form_page.clear_form()
-        if hasattr(self, 'barang_masuk_page'): self.barang_masuk_page.clear_form()
-        if hasattr(self, 'barang_keluar_page'): self.barang_keluar_page.clear_form()
-        if hasattr(self, 'audit_stok_page'): self.audit_stok_page.clear_form()
-        if hasattr(self, 'master_barang_page'): 
-            if hasattr(self.master_barang_page, 'search_barang'):
-                self.master_barang_page.search_barang.clear()
-        
-        # Penanganan khusus mode tambah/edit
-        if index == 8: # Barang Form
-            self.barang_form_page.set_add_mode()
+        # Keamanan: cegah user biasa mengakses halaman CRUD
+        if not self.is_super_admin and index not in (0, 5, 7):
+            return
+            
+        # Setiap perpindahan, kita bersihkan input lama (hanya jika atribut ada — Super Admin)
+        if self.is_super_admin:
+            if hasattr(self, 'barang_form_page'): self.barang_form_page.clear_form()
+            if hasattr(self, 'barang_masuk_page'): self.barang_masuk_page.clear_form()
+            if hasattr(self, 'barang_keluar_page'): self.barang_keluar_page.clear_form()
+            if hasattr(self, 'audit_stok_page'): self.audit_stok_page.clear_form()
+            if hasattr(self, 'master_barang_page'): 
+                if hasattr(self.master_barang_page, 'search_barang'):
+                    self.master_barang_page.search_barang.clear()
+            
+            # Penanganan khusus mode tambah/edit
+            if index == 8: # Barang Form
+                self.barang_form_page.set_add_mode()
         
         self.switch_page(index)
 
     def switch_page(self, index):
-        self.pages.setCurrentIndex(index)
+        """Switch ke halaman berdasarkan nav index (diterjemahkan via _page_index_map)."""
+        actual_index = self._page_index_map.get(index, 0)
+        self.pages.setCurrentIndex(actual_index)
+        
         for idx, btn in self.nav_buttons.items():
             is_active = (idx == index)
             btn.setProperty("active", is_active)
@@ -478,4 +569,4 @@ class DashboardWindow(QMainWindow):
     def send_tray_notification(self, title, message, icon=QSystemTrayIcon.Warning):
         """Helper untuk mengirim notifikasi balon Windows."""
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.showMessage(title, message, icon, 5000)
+            self.tray_icon.showMessage(title, message, icon, 5000)
