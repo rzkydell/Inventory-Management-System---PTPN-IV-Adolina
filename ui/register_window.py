@@ -45,7 +45,7 @@ class RegisterWindow(QWidget):
         # Container Utama (Floating Card)
         container = QFrame()
         container.setObjectName("mainContainer")
-        container.setFixedSize(450, 600)
+        container.setFixedSize(450, 680)
         
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
         from PySide6.QtGui import QColor
@@ -57,8 +57,8 @@ class RegisterWindow(QWidget):
         container.setGraphicsEffect(shadow)
 
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(45, 50, 45, 50)
-        container_layout.setSpacing(10)
+        container_layout.setContentsMargins(45, 40, 45, 45)
+        container_layout.setSpacing(12)
 
         # 1. Logo Section
         self.logo_label = QLabel()
@@ -87,6 +87,10 @@ class RegisterWindow(QWidget):
         form_layout.setContentsMargins(0, 25, 0, 15)
         form_layout.setSpacing(18)
 
+        self.nama = QLineEdit()
+        self.nama.setPlaceholderText("Nama Lengkap")
+        self.nama.setFixedHeight(50)
+
         self.username = QLineEdit()
         self.username.setPlaceholderText("Pilih Username")
         self.username.setFixedHeight(50)
@@ -96,6 +100,7 @@ class RegisterWindow(QWidget):
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setFixedHeight(50)
 
+        form_layout.addWidget(self.nama)
         form_layout.addWidget(self.username)
         form_layout.addWidget(self.password)
 
@@ -128,78 +133,83 @@ class RegisterWindow(QWidget):
         main_layout.addStretch()
 
     def get_main_style(self):
-        """Kumpulan CSS Modern (Sinkron dengan LoginWindow)."""
+        """Kumpulan CSS Modern (Sinkron dengan LoginWindow - PTPN IV Brand Theme)."""
         return """
             QWidget {
-                background-color: #f1f5f9;
+                background-color: #f2f9f6;
                 font-family: 'Segoe UI', Arial, sans-serif;
             }
             #mainContainer {
                 background-color: #ffffff;
-                border-radius: 16px;
+                border-radius: 20px;
+                border: 1px solid #e2f0e9;
             }
             #titleLabel {
                 font-size: 26px;
                 font-weight: 800;
-                color: #1e293b;
+                color: #0c663b; /* PTPN IV Forest Green */
+                letter-spacing: 0.5px;
             }
             #subtitleLabel {
                 font-size: 13px;
-                color: #64748b;
-                font-weight: 400;
+                color: #58816c; /* Muted Green */
+                font-weight: 500;
             }
             QLineEdit {
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
+                border: 2px solid #e2e8f0;
+                border-radius: 10px;
                 padding: 10px 15px;
-                background-color: #f8fafc;
+                background-color: #fafdfb;
                 color: #1e293b;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border: 2px solid #10b981; /* Warna hijau untuk registrasi */
+                border: 2px solid #10b981; /* PTPN IV Accent Green */
                 background-color: #ffffff;
             }
             QPushButton {
-                background-color: #10b981; /* Hijau PTPN IV Style */
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0c663b, stop:1 #10b981);
                 color: white;
-                border-radius: 8px;
-                font-weight: bold;
+                border-radius: 10px;
+                border: none;
+                font-weight: 800;
                 font-size: 14px;
                 letter-spacing: 1px;
             }
             QPushButton:hover {
-                background-color: #059669;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0a522f, stop:1 #059669);
             }
             QPushButton:pressed {
-                background-color: #047857;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #073d22, stop:1 #047857);
             }
             #btnLink {
                 background: none;
                 border: none;
-                color: #64748b;
+                color: #0c663b;
                 font-size: 13px;
-                font-weight: 600;
-                text-decoration: underline;
+                font-weight: 700;
+                text-decoration: none;
             }
             #btnLink:hover {
-                color: #1e293b;
+                color: #10b981;
+                text-decoration: underline;
             }
         """
 
     def proses_register(self):
         """Logika proses pendaftaran akun."""
+        nama = self.nama.text().strip()
         username = self.username.text().strip()
         password = self.password.text().strip()
 
-        if not username or not password:
-            self.show_notif("Peringatan", "Mohon lengkapi username dan password.", is_error=True)
+        if not nama or not username or not password:
+            self.show_notif("Peringatan", "Mohon lengkapi nama, username, dan password.", is_error=True)
             return
 
         self.btn_register.setText("MEMPROSES...")
         self.btn_register.setEnabled(False)
 
-        success = register_user(username, password)
+        success = register_user(username, password, nama)
 
         if success:
             self.show_notif("Sukses", f"Akun '{username}' berhasil dibuat! Silahkan login.")

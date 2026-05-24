@@ -137,62 +137,66 @@ class LoginWindow(QWidget):
         self.password.returnPressed.connect(self.proses_login)
 
     def get_main_style(self):
-        """Kumpulan CSS Modern untuk jendela login."""
+        """Kumpulan CSS Modern untuk jendela login (PTPN IV Brand Theme)."""
         return """
             QWidget {
-                background-color: #f1f5f9;
+                background-color: #f2f9f6;
                 font-family: 'Segoe UI', Arial, sans-serif;
             }
             #mainContainer {
                 background-color: #ffffff;
-                border-radius: 16px;
+                border-radius: 20px;
+                border: 1px solid #e2f0e9;
             }
             #titleLabel {
                 font-size: 26px;
                 font-weight: 800;
-                color: #1e293b;
+                color: #0c663b; /* PTPN IV Forest Green */
+                letter-spacing: 0.5px;
             }
             #subtitleLabel {
                 font-size: 13px;
-                color: #64748b;
-                font-weight: 400;
+                color: #58816c; /* Muted Green */
+                font-weight: 500;
             }
             QLineEdit {
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
+                border: 2px solid #e2e8f0;
+                border-radius: 10px;
                 padding: 10px 15px;
-                background-color: #f8fafc;
+                background-color: #fafdfb;
                 color: #1e293b;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border: 2px solid #3b82f6;
+                border: 2px solid #10b981; /* PTPN IV Accent Green */
                 background-color: #ffffff;
             }
             QPushButton {
-                background-color: #1e293b;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0c663b, stop:1 #10b981);
                 color: white;
-                border-radius: 8px;
-                font-weight: bold;
+                border-radius: 10px;
+                border: none;
+                font-weight: 800;
                 font-size: 14px;
                 letter-spacing: 1px;
             }
             QPushButton:hover {
-                background-color: #334155;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0a522f, stop:1 #059669);
             }
             QPushButton:pressed {
-                background-color: #0f172a;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #073d22, stop:1 #047857);
             }
             #btnLink {
                 background: none;
                 border: none;
-                color: #3b82f6;
+                color: #0c663b;
                 font-size: 13px;
-                font-weight: 600;
-                text-decoration: underline;
+                font-weight: 700;
+                text-decoration: none;
             }
             #btnLink:hover {
-                color: #2563eb;
+                color: #10b981;
+                text-decoration: underline;
             }
         """
 

@@ -216,6 +216,9 @@ class BarangFormPage(QWidget):
 
     def set_edit_mode(self, id_b, data):
         """Siapkan form untuk mode edit."""
+        self.load_kategori()
+        self.load_lokasi()
+        
         self.id_barang_aktif = id_b
         self.title_label.setText(f"✏️ EDIT BARANG: {data['nama']}")
         self.input_barcode.setText(data['barcode'])
@@ -231,6 +234,9 @@ class BarangFormPage(QWidget):
         if idx_l >= 0: self.combo_lokasi.setCurrentIndex(idx_l)
 
     def set_add_mode(self):
+        self.load_kategori()
+        self.load_lokasi()
+        
         self.id_barang_aktif = None
         self.title_label.setText("➕ TAMBAH BARANG BARU")
         self.clear_form()
@@ -312,6 +318,10 @@ class BarangFormPage(QWidget):
 
         if not nama or not barcode:
             self.show_notif("Peringatan", "Nama dan Barcode wajib diisi!", is_error=True)
+            return
+
+        if id_kat is None or id_lok is None:
+            self.show_notif("Peringatan", "Kategori dan Lokasi Penyimpanan wajib dipilih! Jika kosong, silakan tambahkan data di Master Pendukung terlebih dahulu.", is_error=True)
             return
 
         try:

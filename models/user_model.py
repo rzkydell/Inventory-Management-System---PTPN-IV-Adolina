@@ -70,7 +70,7 @@ def _migrate_password(conn, username, password):
         print(f"MIGRASI PASSWORD ERROR: {e}")
 
 
-def register_user(username, password):
+def register_user(username, password, nama=""):
     """Daftarkan user baru dengan role 'user' (bukan super_admin)."""
     conn = get_connection()
     if conn is None:
@@ -78,15 +78,32 @@ def register_user(username, password):
 
     try:
         hashed = _hash_password(password)
+        display_name = nama.strip() if nama else username
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-            (username, hashed, 'user')
+            "INSERT INTO users (username, password, role, nama) VALUES (?, ?, ?, ?)",
+            (username, hashed, 'user', display_name)
         )
         conn.commit()
         return True
     except Exception as e:
         print(f"REGISTER ERROR: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_user_nama(user_id, nama):
+    """Update nama tampilan pengguna."""
+    conn = get_connection()
+    if conn is None:
+        return False
+    try:
+        conn.execute("UPDATE users SET nama = ? WHERE id_user = ?", (nama, user_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"UPDATE NAMA ERROR: {e}")
         return False
     finally:
         conn.close()

@@ -7,6 +7,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QPixmap, QIcon, QFont, QAction
+from ui.profile_dialog import (
+    ProfileDialog, get_user_photo_path, create_circular_pixmap, get_default_avatar_pixmap
+)
 
 # Import halaman UI
 from ui.master_barang_page import MasterBarangPage
@@ -34,10 +37,10 @@ class DashboardWindow(QMainWindow):
         self.already_warned = False
         self._force_close = False
         
-        # Data pengguna yang login (dict: id_user, username, password, role)
+        # Data pengguna yang login (dict: id_user, username, password, role, nama)
         self.user_data = user_data or {}
         self.user_role = self.user_data.get('role', 'user')
-        self.user_name = self.user_data.get('username', 'User')
+        self.user_name = self.user_data.get('nama', '') or self.user_data.get('username', 'User')
         self.is_super_admin = (self.user_role == 'super_admin')
         
         self.init_settings()
@@ -100,18 +103,137 @@ class DashboardWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
+        # Layout horizontal utama (Sidebar di kiri, Container kanan di kanan)
         self.main_layout = QHBoxLayout(central_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # 1. SIDEBAR NAVIGATION
+        # 1. SIDEBAR NAVIGATION (Kiri, tinggi 100%)
         self.setup_sidebar()
 
-        # 2. CONTENT AREA
+        # Container Kanan (Navbar di atas, Content Area di bawah)
+        self.right_container = QWidget()
+        self.right_container.setObjectName("rightContainer")
+        self.right_container.setStyleSheet("QWidget#rightContainer { background-color: #f8fafc; }")
+        right_layout = QVBoxLayout(self.right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        # 0. NAVBAR (Di atas area konten kanan)
+        self.setup_navbar()
+        right_layout.addWidget(self.navbar)
+
+        # 2. CONTENT AREA (Di bawah navbar)
         self.setup_content_area()
+        right_layout.addWidget(self.content_area, 1)
+
+        self.main_layout.addWidget(self.right_container, 1)
 
         # Default Page
         self.switch_page(0)
+
+    def setup_navbar(self):
+        """Navbar atas dengan branding, tombol AI, dan profil pengguna."""
+        self.navbar = QFrame()
+        self.navbar.setObjectName("topNavbar")
+        self.navbar.setFixedHeight(60)
+        self.navbar.setStyleSheet("""
+            QFrame#topNavbar {
+                background-color: #1e293b;
+                border-bottom: 1px solid #334155;
+            }
+        """)
+        nav_layout = QHBoxLayout(self.navbar)
+        nav_layout.setContentsMargins(24, 0, 24, 0)
+        nav_layout.setSpacing(12)
+
+        nav_layout.addStretch()
+
+        # --- AI Assistant Button ---
+        self.btn_navbar_ai = QPushButton("  🤖  Asisten AI")
+        self.btn_navbar_ai.setCursor(Qt.PointingHandCursor)
+        self.btn_navbar_ai.setFixedHeight(36)
+        self.btn_navbar_ai.setObjectName("navbarAI")
+        self.btn_navbar_ai.setStyleSheet("""
+            QPushButton#navbarAI {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #8b5cf6);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 0 18px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton#navbarAI:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #7c3aed);
+            }
+            QPushButton#navbarAI[active="true"] {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4338ca, stop:1 #6d28d9);
+                border: 2px solid #a78bfa;
+            }
+        """)
+        self.btn_navbar_ai.clicked.connect(lambda: self.nav_button_clicked(10))
+        nav_layout.addWidget(self.btn_navbar_ai)
+
+        nav_layout.addSpacing(8)
+
+        # --- Separator ---
+        sep = QFrame()
+        sep.setFixedSize(1, 24)
+        sep.setStyleSheet("background-color: #475569;")
+        nav_layout.addWidget(sep)
+
+        nav_layout.addSpacing(8)
+
+        # --- Profile Photo ---
+        self.navbar_photo = QLabel()
+        self.navbar_photo.setFixedSize(36, 36)
+        self.navbar_photo.setCursor(Qt.PointingHandCursor)
+        self.navbar_photo.setToolTip("Profil Pengguna")
+        self.navbar_photo.mousePressEvent = lambda e: self.open_profile_dialog()
+        self._refresh_navbar_photo()
+        nav_layout.addWidget(self.navbar_photo)
+
+        # --- Username + Role ---
+        user_info = QWidget()
+        user_info_layout = QVBoxLayout(user_info)
+        user_info_layout.setContentsMargins(0, 0, 0, 0)
+        user_info_layout.setSpacing(0)
+
+        name_lbl = QLabel(self.user_name)
+        name_lbl.setStyleSheet("color: #f1f5f9; font-size: 13px; font-weight: 700;")
+        self._navbar_name_label = name_lbl
+        role_lbl = QLabel("Super Admin" if self.is_super_admin else "Monitoring")
+        role_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500;")
+
+        user_info_layout.addWidget(name_lbl)
+        user_info_layout.addWidget(role_lbl)
+        nav_layout.addWidget(user_info)
+
+    def _refresh_navbar_photo(self):
+        """Refresh foto profil di navbar."""
+        user_id = self.user_data.get('id_user', 0)
+        photo_path = get_user_photo_path(user_id)
+        if photo_path and os.path.exists(photo_path):
+            pix = create_circular_pixmap(QPixmap(photo_path), 36)
+        else:
+            pix = get_default_avatar_pixmap(self.user_name, 36)
+        self.navbar_photo.setPixmap(pix)
+
+    def open_profile_dialog(self):
+        """Buka dialog profil pengguna."""
+        dlg = ProfileDialog(self.user_data, self)
+        dlg.photo_updated.connect(self._refresh_navbar_photo)
+        dlg.nama_updated.connect(self._refresh_navbar_name)
+        dlg.exec()
+
+    def _refresh_navbar_name(self, new_name):
+        """Refresh nama tampilan di navbar setelah diubah dari profil."""
+        self.user_name = new_name
+        self.user_data['nama'] = new_name
+        # Update label nama di navbar
+        if hasattr(self, '_navbar_name_label'):
+            self._navbar_name_label.setText(new_name)
 
     def setup_sidebar(self):
         """Konfigurasi Sidebar Navigasi dengan identitas unit dan role badge."""
@@ -242,13 +364,11 @@ class DashboardWindow(QMainWindow):
         self.btn_laporan = self.create_nav_btn("  📊  Laporan Sistem", 5)
         self.btn_log = self.create_nav_btn("  🕵️  Log Aktivitas", 7)
         self.btn_pengaturan = self.create_nav_btn("  🛡️  Pengaturan Sistem", 6)
-        self.btn_ai_chat = self.create_nav_btn("  🤖  Asisten AI", 10)
 
         # Tambahkan ke Sidebar
         sidebar_layout.addWidget(self.btn_dashboard)  # Selalu tampil
         
         if self.is_super_admin:
-            # Super Admin mendapat akses penuh ke semua menu
             sidebar_layout.addWidget(self.btn_master_parent)
             sidebar_layout.addWidget(self.sub_menu_frame)
             sidebar_layout.addWidget(self.btn_masuk)
@@ -257,12 +377,9 @@ class DashboardWindow(QMainWindow):
             sidebar_layout.addWidget(self.btn_laporan)
             sidebar_layout.addWidget(self.btn_log)
             sidebar_layout.addWidget(self.btn_pengaturan)
-            sidebar_layout.addWidget(self.btn_ai_chat)
         else:
-            # User biasa: hanya bisa melihat Laporan dan Log (read-only)
             sidebar_layout.addWidget(self.btn_laporan)
             sidebar_layout.addWidget(self.btn_log)
-            sidebar_layout.addWidget(self.btn_ai_chat)
         
         sidebar_layout.addStretch()
 
@@ -289,14 +406,12 @@ class DashboardWindow(QMainWindow):
                 9: self.btn_audit,
                 5: self.btn_laporan,
                 7: self.btn_log,
-                6: self.btn_pengaturan,
-                10: self.btn_ai_chat
+                6: self.btn_pengaturan
             })
         else:
             self.nav_buttons.update({
                 5: self.btn_laporan,
                 7: self.btn_log,
-                10: self.btn_ai_chat,
             })
 
     def create_nav_btn(self, text, index, is_parent=False, is_sub=False):
@@ -320,13 +435,13 @@ class DashboardWindow(QMainWindow):
     def setup_content_area(self):
         """Area konten dengan stacked widget untuk efisiensi layar."""
         # Container area kanan dengan background konsisten
-        content_area = QWidget()
-        content_area.setObjectName("contentArea")
-        content_area.setStyleSheet("""
+        self.content_area = QWidget()
+        self.content_area.setObjectName("contentArea")
+        self.content_area.setStyleSheet("""
             QWidget#contentArea { background-color: #f8fafc; }
             QStackedWidget { background-color: #f8fafc; }
         """)
-        content_layout = QVBoxLayout(content_area)
+        content_layout = QVBoxLayout(self.content_area)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
@@ -365,14 +480,12 @@ class DashboardWindow(QMainWindow):
             self.pages.addWidget(self.create_page_wrapper(LaporanPage(), "Laporan Aktivitas", "Analisa data pergerakan barang berdasarkan periode."))  # 1 (mapped from 5)
             self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))  # 2 (mapped from 7)
             self.pages.addWidget(self.create_page_wrapper(AIChatPage(), "Asisten AI Inventaris", "Tanyakan apa saja seputar data gudang Anda menggunakan AI."))  # 3 (mapped from 10)
-
-        self.main_layout.addWidget(content_area)
         
         # Page Index Mapping — menerjemahkan nav index ke actual stacked widget index
         if self.is_super_admin:
-            self._page_index_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10}
+            self._page_index_map = {0:0, 1:1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9:9, 10:10}
         else:
-            self._page_index_map = {0: 0, 5: 1, 7: 2, 10: 3}
+            self._page_index_map = {0:0, 5:1, 7:2, 10:3}
 
     def create_page_wrapper(self, content_widget, title, subtitle):
         """Standardisasi tampilan header setiap halaman."""
@@ -478,6 +591,7 @@ class DashboardWindow(QMainWindow):
         # Keamanan: cegah user biasa mengakses halaman CRUD
         if not self.is_super_admin and index not in (0, 5, 7, 10):
             return
+
             
         # Setiap perpindahan, kita bersihkan input lama (hanya jika atribut ada — Super Admin)
         if self.is_super_admin:
@@ -500,11 +614,18 @@ class DashboardWindow(QMainWindow):
         actual_index = self._page_index_map.get(index, 0)
         self.pages.setCurrentIndex(actual_index)
         
+        # Update sidebar buttons
         for idx, btn in self.nav_buttons.items():
             is_active = (idx == index)
             btn.setProperty("active", is_active)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+
+        # Update navbar AI button
+        if hasattr(self, 'btn_navbar_ai'):
+            self.btn_navbar_ai.setProperty("active", index == 10)
+            self.btn_navbar_ai.style().unpolish(self.btn_navbar_ai)
+            self.btn_navbar_ai.style().polish(self.btn_navbar_ai)
 
     def logout(self):
         self._force_close = True

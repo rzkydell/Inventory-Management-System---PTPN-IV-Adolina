@@ -51,6 +51,20 @@ def get_connection():
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Kolom sudah ada
+
+        # Migrasi: Tambah kolom profile_photo pada tabel users
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Kolom sudah ada
+
+        # Migrasi: Tambah kolom nama pada tabel users
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN nama TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Kolom sudah ada
         
         return conn
 
