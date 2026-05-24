@@ -37,6 +37,7 @@ database/backups/
 barcode/
 label_masuk/
 label_barcode/
+config.json
 
 # OS
 .DS_Store

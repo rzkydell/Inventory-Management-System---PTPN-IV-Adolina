@@ -10,7 +10,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
-from utils.config_manager import get_ip_camera_url, set_ip_camera_url
+from utils.config_manager import (
+    get_ip_camera_url, set_ip_camera_url,
+    get_gemini_api_key, set_gemini_api_key
+)
 
 class PengaturanPage(QWidget):
     """
@@ -164,6 +167,61 @@ class PengaturanPage(QWidget):
         cam_layout.addLayout(input_row)
         layout.addWidget(cam_card)
 
+        # --- SECTION 4: GEMINI API KEY CONFIGURATION ---
+        ai_card = QFrame()
+        ai_card.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        self.apply_shadow(ai_card)
+        ai_layout = QVBoxLayout(ai_card)
+        ai_layout.setContentsMargins(20, 20, 20, 20)
+        ai_layout.setSpacing(10)
+
+        ai_title = QLabel("🤖 KONFIGURASI ASISTEN AI (GEMINI API KEY)")
+        ai_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #1e293b;")
+        ai_desc = QLabel("Masukkan Gemini API Key Anda dari Google AI Studio untuk mengaktifkan fitur tanya-jawab inventaris cerdas.\n\n🔒 KEAMANAN: Kunci API Anda disimpan secara lokal di komputer ini dan secara otomatis diabaikan oleh Git, sehingga tidak akan pernah bocor ke GitHub.")
+        ai_desc.setWordWrap(True)
+        ai_desc.setStyleSheet("color: #64748b; margin-bottom: 10px;")
+
+        ai_layout.addWidget(ai_title)
+        ai_layout.addWidget(ai_desc)
+
+        ai_input_row = QHBoxLayout()
+        ai_input_row.setSpacing(10)
+
+        self.input_api_key = QLineEdit()
+        self.input_api_key.setPlaceholderText("Masukkan Gemini API Key Anda...")
+        self.input_api_key.setEchoMode(QLineEdit.Password)  # Masking input for safety
+        self.input_api_key.setStyleSheet("""
+            QLineEdit { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 13px; color: #000000; font-weight: bold; }
+            QLineEdit:focus { border: 2px solid #10b981; background-color: #ffffff; }
+        """)
+        # Load existing config
+        self.input_api_key.setText(get_gemini_api_key())
+
+        self.btn_save_key = QPushButton("Simpan API Key")
+        self.btn_save_key.setCursor(Qt.PointingHandCursor)
+        self.btn_save_key.setFixedHeight(42)
+        self.btn_save_key.setStyleSheet("""
+            QPushButton { background-color: #10b981; color: white; font-weight: bold; font-size: 13px; border-radius: 8px; padding-left: 15px; padding-right: 15px; }
+            QPushButton:hover { background-color: #059669; }
+        """)
+        self.btn_save_key.clicked.connect(self.save_api_key_config)
+
+        self.btn_toggle_visibility = QPushButton("👁️ Lihat")
+        self.btn_toggle_visibility.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_visibility.setFixedHeight(42)
+        self.btn_toggle_visibility.setStyleSheet("""
+            QPushButton { background-color: #1e293b; color: white; font-weight: bold; font-size: 13px; border-radius: 8px; padding-left: 15px; padding-right: 15px; }
+            QPushButton:hover { background-color: #334155; }
+        """)
+        self.btn_toggle_visibility.clicked.connect(self.toggle_key_visibility)
+
+        ai_input_row.addWidget(self.input_api_key, 1)
+        ai_input_row.addWidget(self.btn_toggle_visibility)
+        ai_input_row.addWidget(self.btn_save_key)
+
+        ai_layout.addLayout(ai_input_row)
+        layout.addWidget(ai_card)
+
         layout.addStretch()
 
         scroll.setWidget(container)
@@ -255,3 +313,19 @@ class PengaturanPage(QWidget):
         finally:
             self.btn_test_cam.setText("🔍 Cek Koneksi")
             self.btn_test_cam.setEnabled(True)
+
+    def toggle_key_visibility(self):
+        if self.input_api_key.echoMode() == QLineEdit.Password:
+            self.input_api_key.setEchoMode(QLineEdit.Normal)
+            self.btn_toggle_visibility.setText("👁️ Sembunyikan")
+        else:
+            self.input_api_key.setEchoMode(QLineEdit.Password)
+            self.btn_toggle_visibility.setText("👁️ Lihat")
+
+    def save_api_key_config(self):
+        key = self.input_api_key.text().strip()
+        if set_gemini_api_key(key):
+            self.show_notif("Berhasil", "Gemini API Key berhasil disimpan dengan aman secara lokal!", is_info=True)
+            self.input_api_key.clearFocus()
+        else:
+            self.show_notif("Gagal", "Terjadi kesalahan saat menyimpan API Key.", is_error=True)

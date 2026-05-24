@@ -35,3 +35,25 @@ def set_ip_camera_url(url):
     config = load_config()
     config["ip_camera_url"] = url.strip()
     return save_config(config)
+
+def get_gemini_api_key():
+    """Get the current Gemini API Key from config, fallback to environment variable or leaked key if needed."""
+    # 1. Coba dari environment variable dulu
+    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if env_key:
+        return env_key
+        
+    # 2. Coba dari config.json
+    config = load_config()
+    stored_key = config.get("gemini_api_key", "").strip()
+    if stored_key:
+        return stored_key
+        
+    # 3. Fallback ke default key lama (jika belum disetting)
+    return "AIzaSyA2srzqjMy2wLTliBTjd--Mc6-eb2eULXs"
+
+def set_gemini_api_key(key):
+    """Set the Gemini API Key in config."""
+    config = load_config()
+    config["gemini_api_key"] = key.strip()
+    return save_config(config)

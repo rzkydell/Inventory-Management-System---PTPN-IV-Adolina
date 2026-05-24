@@ -17,15 +17,16 @@ import urllib.request
 import urllib.error
 import logging
 from database.connection import get_connection
+from utils.config_manager import get_gemini_api_key
 
 logger = logging.getLogger("InventoryApp.AI")
 
 # ============================================================
 # KONFIGURASI
 # ============================================================
-GEMINI_API_KEY = "AIzaSyA2srzqjMy2wLTliBTjd--Mc6-eb2eULXs"
+# GEMINI_API_KEY kini diambil dinamis melalui config_manager.get_gemini_api_key()
 
-# Daftar model prioritas — jika model utama kehabisan kuota, coba model berikutnya
+# Daftar model prioritas sesuai dengan ketersediaan API key Anda
 GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -237,7 +238,8 @@ def _call_gemini_api(messages: list) -> str:
     last_error_msg = ""
 
     for model_name in GEMINI_MODELS:
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        current_api_key = get_gemini_api_key()
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={current_api_key}"
 
         for attempt in range(MAX_RETRIES):
             data = json.dumps(payload).encode("utf-8")
@@ -278,29 +280,47 @@ def _call_gemini_api(messages: list) -> str:
                     delay = RETRY_BASE_DELAY * (2 ** attempt)
                     logger.info(f"Rate limited pada {model_name}. Retry dalam {delay}s...")
                     time.sleep(delay)
-                    last_error_msg = "⚠️ Batas permintaan API telah tercapai. Silakan coba lagi dalam beberapa saat."
+                    last_error_msg = (
+                        "⚠️ **Batas Permintaan Terlampaui (Error 429 - Quota Exceeded)**\n\n"
+                        "Kuota harian gratis untuk API Key Anda saat ini telah habis.\n\n"
+                        "👉 **Solusi:** Silakan buat API Key baru secara gratis di **Google AI Studio** dan simpan kunci baru tersebut di halaman **Pengaturan**."
+                    )
                     continue
                 elif e.code == 403:
-                    last_error_msg = "⚠️ API Key tidak valid atau tidak memiliki akses. Periksa konfigurasi API Key."
-                    break  # Tidak perlu retry, API key salah
+                    last_error_msg = (
+                        "⚠️ **Akses Ditolak / API Key Bocor (Error 403)**\n\n"
+                        "Kunci API Anda tidak valid atau telah **diblokir secara permanen oleh sistem keamanan Google karena terdeteksi bocor** secara publik.\n\n"
+                        "👉 **Solusi:** Buka halaman **Pengaturan** di sidebar kiri Anda, buat API Key baru secara gratis dari **Google AI Studio**, lalu masukkan dan simpan di sana."
+                    )
+                    break  # Tidak perlu retry, API key ditolak
+                elif e.code == 404:
+                    last_error_msg = (
+                        f"⚠️ **Model Tidak Ditemukan (Error 404)**\n\n"
+                        f"Model `{model_name}` tidak ditemukan atau tidak didukung pada region/API Key Anda saat ini.\n\n"
+                        f"👉 **Solusi:** Pastikan jenis model didukung secara resmi di region Anda."
+                    )
+                    break
                 else:
-                    last_error_msg = f"⚠️ Error dari server AI (HTTP {e.code}). Silakan coba lagi nanti."
+                    last_error_msg = f"⚠️ **Error Server AI (HTTP {e.code})**\n\nGoogle mengembalikan kesalahan: {e.reason or 'Internal Error'}. Silakan coba lagi nanti."
                     break
 
             except urllib.error.URLError as e:
                 logger.error(f"Gemini API URL Error: {e.reason}")
-                last_error_msg = "⚠️ Tidak dapat terhubung ke server AI. Periksa koneksi internet Anda."
+                last_error_msg = (
+                    "⚠️ **Tidak Ada Koneksi Internet**\n\n"
+                    "Gagal menghubungkan ke server Google Gemini. Periksa kembali koneksi internet komputer/laptop Anda lalu coba lagi."
+                )
                 break  # Tidak perlu retry jika tidak ada koneksi
 
             except Exception as e:
                 logger.error(f"Gemini API Error: {e}")
-                last_error_msg = f"⚠️ Terjadi kesalahan: {str(e)}"
+                last_error_msg = f"⚠️ **Terjadi Kesalahan Teknis**\n\nDetail Error: {str(e)}"
                 break
 
         # Jika semua retry gagal untuk model ini, coba model berikutnya
         logger.info(f"Model {model_name} gagal, mencoba model berikutnya...")
 
-    return last_error_msg or "⚠️ Semua model AI sedang tidak tersedia. Silakan coba lagi nanti."
+    return last_error_msg or "⚠️ Semua model AI sedang tidak tersedia saat ini. Silakan coba beberapa saat lagi."
 
 
 class AIAssistant:
