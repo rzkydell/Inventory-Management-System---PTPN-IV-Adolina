@@ -19,6 +19,7 @@ from ui.pengaturan_page import PengaturanPage
 from ui.log_aktivitas_page import LogAktivitasPage
 from ui.barang_form_page import BarangFormPage
 from ui.audit_stok_page import AuditStokPage
+from ui.ai_chat_page import AIChatPage
 from database.connection import get_connection
 from PySide6.QtWidgets import QMessageBox
 
@@ -241,6 +242,7 @@ class DashboardWindow(QMainWindow):
         self.btn_laporan = self.create_nav_btn("  📊  Laporan Sistem", 5)
         self.btn_log = self.create_nav_btn("  🕵️  Log Aktivitas", 7)
         self.btn_pengaturan = self.create_nav_btn("  🛡️  Pengaturan Sistem", 6)
+        self.btn_ai_chat = self.create_nav_btn("  🤖  Asisten AI", 10)
 
         # Tambahkan ke Sidebar
         sidebar_layout.addWidget(self.btn_dashboard)  # Selalu tampil
@@ -255,10 +257,12 @@ class DashboardWindow(QMainWindow):
             sidebar_layout.addWidget(self.btn_laporan)
             sidebar_layout.addWidget(self.btn_log)
             sidebar_layout.addWidget(self.btn_pengaturan)
+            sidebar_layout.addWidget(self.btn_ai_chat)
         else:
             # User biasa: hanya bisa melihat Laporan dan Log (read-only)
             sidebar_layout.addWidget(self.btn_laporan)
             sidebar_layout.addWidget(self.btn_log)
+            sidebar_layout.addWidget(self.btn_ai_chat)
         
         sidebar_layout.addStretch()
 
@@ -285,12 +289,14 @@ class DashboardWindow(QMainWindow):
                 9: self.btn_audit,
                 5: self.btn_laporan,
                 7: self.btn_log,
-                6: self.btn_pengaturan
+                6: self.btn_pengaturan,
+                10: self.btn_ai_chat
             })
         else:
             self.nav_buttons.update({
                 5: self.btn_laporan,
                 7: self.btn_log,
+                10: self.btn_ai_chat,
             })
 
     def create_nav_btn(self, text, index, is_parent=False, is_sub=False):
@@ -351,20 +357,22 @@ class DashboardWindow(QMainWindow):
             self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))  # 7
             self.pages.addWidget(self.create_page_wrapper(self.barang_form_page, "Formulir Barang", "Kelola informasi detail spesifik barang."))  # 8
             self.pages.addWidget(self.create_page_wrapper(self.audit_stok_page, "Audit Stok Opname", "Verifikasi fisik barang secara periodik."))  # 9
+            self.pages.addWidget(self.create_page_wrapper(AIChatPage(), "Asisten AI Inventaris", "Tanyakan apa saja seputar data gudang Anda menggunakan AI."))  # 10
         else:
             # User biasa: hanya Dashboard + Laporan (read-only) + Log (read-only)
             # Index mapping tetap konsisten: 5 = Laporan, 7 = Log
             # Untuk user biasa, kita taruh di index yang berbeda tapi mapping dilakukan via page_index_map
             self.pages.addWidget(self.create_page_wrapper(LaporanPage(), "Laporan Aktivitas", "Analisa data pergerakan barang berdasarkan periode."))  # 1 (mapped from 5)
             self.pages.addWidget(self.create_page_wrapper(LogAktivitasPage(), "Log Aktivitas Rekam Jejak", "Pemantauan aktivitas pengguna sistem secara komprehensif."))  # 2 (mapped from 7)
+            self.pages.addWidget(self.create_page_wrapper(AIChatPage(), "Asisten AI Inventaris", "Tanyakan apa saja seputar data gudang Anda menggunakan AI."))  # 3 (mapped from 10)
 
         self.main_layout.addWidget(content_area)
         
         # Page Index Mapping — menerjemahkan nav index ke actual stacked widget index
         if self.is_super_admin:
-            self._page_index_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9}
+            self._page_index_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10}
         else:
-            self._page_index_map = {0: 0, 5: 1, 7: 2}
+            self._page_index_map = {0: 0, 5: 1, 7: 2, 10: 3}
 
     def create_page_wrapper(self, content_widget, title, subtitle):
         """Standardisasi tampilan header setiap halaman."""
@@ -468,7 +476,7 @@ class DashboardWindow(QMainWindow):
     def nav_button_clicked(self, index):
         """Dipanggil HANYA saat tombol navigasi kiri diklik, untuk memastikan form bersih."""
         # Keamanan: cegah user biasa mengakses halaman CRUD
-        if not self.is_super_admin and index not in (0, 5, 7):
+        if not self.is_super_admin and index not in (0, 5, 7, 10):
             return
             
         # Setiap perpindahan, kita bersihkan input lama (hanya jika atribut ada — Super Admin)
